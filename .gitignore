@@ -1,0 +1,78 @@
+# Proyecto TradeEvolvePPO - .gitignore
+
+# Archivos de datos grandes
+data/*.csv
+data/dataset/
+*.csv
+*.h5
+*.parquet
+*.pkl
+*.feather
+
+# Archivos de NinjaTrader
+indicator_NT8/*.dll
+indicator_NT8/*.pdb
+connector_nt8/*.dll
+connector_nt8/*.pdb
+*.dll
+*.pdb
+
+# Modelos y resultados
+results/**/models/*.zip
+results/**/*.gz
+results/**/*.log
+results/**/*.json
+results/**/plots/
+*.zip
+*.joblib
+*.onnx
+*.pt
+*.pth
+*.ckpt
+
+# Entorno virtual
+.venv/
+venv/
+env/
+ENV/
+
+# Archivos de caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Archivos de configuración de desarrollo
+.idea/
+.vscode/
+*.swp
+*.swo
+.ipynb_checkpoints/
+*.ipynb
+
+# Archivos temporales y de sistema
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+*~
+.~*
+.cache/
+*.log
+tmp/
+temp/
+
+# Archivos de distribución / empaquetado
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Directorios de cobertura/pruebas
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+coverage.xml
+*.cover 

@@ -42,7 +42,9 @@ class Trainer:
         self.logger = setup_logger(
             name='trainer',
             log_file=os.path.join(self.log_path, 'trainer.log'),
-            level=self.config.get('logging_config', {}).get('log_level', 'INFO')
+            level=self.config.get('logging_config', {}).get('log_level', 'INFO'),
+            console_level=self.config.get('logging_config', {}).get('console_level', 'WARNING'),
+            file_level=self.config.get('logging_config', {}).get('file_level', 'INFO')
         )
         
         # Setup data loader
@@ -245,138 +247,188 @@ class Trainer:
         self.logger.info("Starting progressive training")
         
         # Get progressive stages
-        progressive_steps = self.training_config.get('progressive_steps', [100000, 300000, 600000])
-        total_timesteps = self.training_config.get('total_timesteps', 1000000)
+        progressive_steps = self.training_config.get('progressive_steps', [200000, 600000, 1200000])
+        total_timesteps = self.training_config.get('total_timesteps', 2000000)
         
-        # Make sure steps are in ascending order and less than total steps
-        progressive_steps = sorted([step for step in progressive_steps if step < total_timesteps])
+        # Validate progressive steps
+        if not progressive_steps or not isinstance(progressive_steps, list) or progressive_steps[-1] >= total_timesteps:
+            self.logger.warning("Invalid progressive steps. Running normal training.")
+            return {'stages': [self.train()]}
         
-        # Add total timesteps as the final step
-        progressive_steps.append(total_timesteps)
+        # Log progressive training plan
+        self.logger.info(f"Progressive training plan: {progressive_steps} steps, total {total_timesteps} steps")
         
-        # Define reward weights for each stage
-        reward_config = self.config.get('reward_config', {})
+        # Initialize stage results
+        all_results = {'stages': []}
+        cumulative_steps = 0
         
-        # Stage 1: Focus on basic PnL
-        stage1_weights = {
-            'pnl_weight': 1.0,
-            'risk_weight': 0.2,
-            'trade_penalty': 0.0005,
-            'exposure_penalty': 0.005,
-            'drawdown_penalty': 0.05,
-            'consistency_bonus': 0.02,
-            'sharpe_weight': 0.1,
-            'exit_bonus': 0.01,
-            'profit_factor_bonus': 0.02
+        # Etapa 1: Incentivo de exploración máximo (aprendizaje básico de operaciones)
+        self.logger.info("=== Stage 1: Exploration Phase ===")
+        stage1_steps = progressive_steps[0]
+        
+        # Configuración para Etapa 1: Exploración máxima, sin penalizaciones severas
+        reward_config_stage1 = {
+            'profit_weight': 0.7,
+            'drawdown_weight': 0.2,
+            'volatility_weight': 0.1,
+            'trade_penalty': 0.0,  # Sin penalización por operaciones
+            'position_penalty': 0.0,  # Sin penalización por posiciones
+            'profit_scaling': 10.0,
+            'use_differential_sharpe': False,
+            'activity_bonus': 0.01,  # Bonus alto por actividad
+            'exploration_bonus': 0.02  # Bonus máximo por exploración
         }
         
-        # Stage 2: Increase risk management importance
-        stage2_weights = {
-            'pnl_weight': 1.0,
-            'risk_weight': 0.5,
-            'trade_penalty': 0.001,
-            'exposure_penalty': 0.01,
-            'drawdown_penalty': 0.1,
-            'consistency_bonus': 0.05,
-            'sharpe_weight': 0.2,
-            'exit_bonus': 0.02,
-            'profit_factor_bonus': 0.05
+        # Aplicar configuración de Etapa 1
+        orig_reward_config = self.config.get('reward_config', {}).copy()
+        self.config['reward_config'] = reward_config_stage1
+        
+        # Entrenar Etapa 1
+        self.logger.info(f"Stage 1 training: {stage1_steps} steps")
+        self.agent.model.learning_rate = self.config.get('ppo_config', {}).get('learning_rate', 5e-4)
+        self.agent.model.ent_coef = 0.05  # Alto coeficiente de entropía para máxima exploración
+        stage1_results = self.train_stage(stage1_steps)
+        all_results['stages'].append(stage1_results)
+        
+        cumulative_steps += stage1_steps
+        self.logger.info(f"Stage 1 completed. Cumulative steps: {cumulative_steps}")
+        
+        # Etapa 2: Balance entre exploración y explotación
+        self.logger.info("=== Stage 2: Balanced Learning Phase ===")
+        stage2_steps = progressive_steps[1] - progressive_steps[0]
+        
+        # Configuración para Etapa 2: Balance entre exploración y explotación
+        reward_config_stage2 = {
+            'profit_weight': 1.0,
+            'drawdown_weight': 0.3,
+            'volatility_weight': 0.2,
+            'trade_penalty': 0.00001,  # Pequeña penalización por operaciones
+            'position_penalty': 0.00001,
+            'profit_scaling': 15.0,
+            'use_differential_sharpe': False,
+            'activity_bonus': 0.005,
+            'exploration_bonus': 0.01
         }
         
-        # Stage 3: Emphasize consistency and sharpe ratio
-        stage3_weights = {
-            'pnl_weight': 1.0,
-            'risk_weight': 0.7,
-            'trade_penalty': 0.002,
-            'exposure_penalty': 0.02,
-            'drawdown_penalty': 0.15,
-            'consistency_bonus': 0.1,
-            'sharpe_weight': 0.3,
-            'exit_bonus': 0.03,
-            'profit_factor_bonus': 0.1
+        # Aplicar configuración de Etapa 2
+        self.config['reward_config'] = reward_config_stage2
+        
+        # Entrenar Etapa 2
+        self.logger.info(f"Stage 2 training: {stage2_steps} steps")
+        self.agent.model.learning_rate = self.config.get('ppo_config', {}).get('learning_rate', 5e-4) * 0.8  # Reducir learning rate
+        self.agent.model.ent_coef = 0.02  # Reducir entropía para balancear exploración/explotación
+        stage2_results = self.train_stage(stage2_steps)
+        all_results['stages'].append(stage2_results)
+        
+        cumulative_steps += stage2_steps
+        self.logger.info(f"Stage 2 completed. Cumulative steps: {cumulative_steps}")
+        
+        # Etapa 3: Refinamiento y optimización
+        self.logger.info("=== Stage 3: Optimization Phase ===")
+        stage3_steps = progressive_steps[2] - progressive_steps[1]
+        
+        # Configuración para Etapa 3: Enfoque en refinamiento y rentabilidad
+        reward_config_stage3 = {
+            'profit_weight': 1.2,
+            'drawdown_weight': 0.4,
+            'volatility_weight': 0.3,
+            'trade_penalty': 0.0001,
+            'position_penalty': 0.0001,
+            'profit_scaling': 15.0,
+            'sharpe_weight': 0.5,
+            'consistency_weight': 0.4,
+            'use_differential_sharpe': True,
+            'activity_bonus': 0.001,
+            'exploration_bonus': 0.003
         }
         
-        # Store the original weights
-        original_weights = reward_config.copy()
+        # Aplicar configuración de Etapa 3
+        self.config['reward_config'] = reward_config_stage3
         
-        # Initialize results
-        results = {'stages': []}
+        # Entrenar Etapa 3
+        self.logger.info(f"Stage 3 training: {stage3_steps} steps")
+        self.agent.model.learning_rate = self.config.get('ppo_config', {}).get('learning_rate', 5e-4) * 0.5  # Reducir learning rate
+        self.agent.model.ent_coef = 0.01  # Reducir entropía para favorecer explotación
+        stage3_results = self.train_stage(stage3_steps)
+        all_results['stages'].append(stage3_results)
         
-        # Run each stage
-        for i, timesteps in enumerate(progressive_steps):
-            stage_num = i + 1
-            self.logger.info(f"Starting stage {stage_num} with {timesteps} timesteps")
-            
-            # Update reward weights based on stage
-            if stage_num == 1:
-                reward_weights = stage1_weights
-            elif stage_num == 2:
-                reward_weights = stage2_weights
-            else:
-                reward_weights = stage3_weights
-            
-            # Update config with new weights
-            self.config['reward_config'] = reward_weights
-            self.env_config['reward_config'] = reward_weights
-            
-            # Update training timesteps
-            self.config['training_config']['total_timesteps'] = timesteps
-            
-            # If not first stage, load the best model from previous stage
-            if stage_num > 1:
-                best_model_path = os.path.join(
-                    self.training_config.get('save_path', './models/'),
-                    f'best_model_stage_{stage_num-1}.zip'
-                )
-                
-                if os.path.exists(best_model_path):
-                    self.agent.load(best_model_path, env=self.train_env)
-                    self.logger.info(f"Loaded best model from stage {stage_num-1}")
-            
-            # Train the agent
-            stage_stats = self.train()
-            
-            # Rename and save the best model for this stage
-            best_model_path = os.path.join(
-                self.training_config.get('save_path', './models/'),
-                'best_model.zip'
-            )
-            
-            if os.path.exists(best_model_path):
-                stage_best_path = os.path.join(
-                    self.training_config.get('save_path', './models/'),
-                    f'best_model_stage_{stage_num}.zip'
-                )
-                
-                try:
-                    # Copy the best model
-                    import shutil
-                    shutil.copy(best_model_path, stage_best_path)
-                    self.logger.info(f"Best model from stage {stage_num} saved to {stage_best_path}")
-                except Exception as e:
-                    self.logger.error(f"Error saving stage {stage_num} best model: {e}")
-            
-            # Evaluate on validation set
-            val_metrics = self.evaluate(env=self.val_env)
-            
-            # Store results
-            stage_results = {
-                'stage': stage_num,
-                'timesteps': timesteps,
-                'reward_weights': reward_weights,
-                'training_stats': stage_stats,
-                'validation_metrics': val_metrics
-            }
-            
-            results['stages'].append(stage_results)
-            self.logger.info(f"Stage {stage_num} completed: {val_metrics}")
+        cumulative_steps += stage3_steps
+        self.logger.info(f"Stage 3 completed. Cumulative steps: {cumulative_steps}")
         
-        # Restore original weights
-        self.config['reward_config'] = original_weights
-        self.env_config['reward_config'] = original_weights
+        # Etapa 4: Final - Optimización de rendimiento
+        self.logger.info("=== Stage 4: Performance Optimization Phase ===")
+        stage4_steps = total_timesteps - cumulative_steps
+        
+        # Configuración para Etapa 4: Enfoque en rendimiento óptimo
+        reward_config_stage4 = {
+            'profit_weight': 1.5,
+            'drawdown_weight': 0.5,
+            'volatility_weight': 0.4,
+            'trade_penalty': 0.0002,  # Mayor penalización para evitar sobretradeo
+            'position_penalty': 0.0002,
+            'profit_scaling': 25.0,
+            'use_differential_sharpe': True,
+            'activity_bonus': 0.002,
+            'exploration_bonus': 0.002
+        }
+        
+        # Aplicar configuración de Etapa 4
+        self.config['reward_config'] = reward_config_stage4
+        
+        # Entrenar Etapa 4
+        self.logger.info(f"Stage 4 training: {stage4_steps} steps")
+        self.agent.model.learning_rate = self.config.get('ppo_config', {}).get('learning_rate', 5e-4) * 0.2  # Learning rate mínimo
+        self.agent.model.ent_coef = 0.005  # Mínima entropía para maximizar explotación
+        stage4_results = self.train_stage(stage4_steps)
+        all_results['stages'].append(stage4_results)
+        
+        # Restaurar configuración original
+        self.config['reward_config'] = orig_reward_config
         
         self.logger.info("Progressive training completed")
-        return results
+        return all_results
+    
+    def train_stage(self, timesteps: int) -> Dict[str, Any]:
+        """
+        Train the agent for a specific number of timesteps.
+        
+        Args:
+            timesteps (int): Number of timesteps to train for
+            
+        Returns:
+            Dict[str, Any]: Training statistics
+        """
+        if self.agent is None or self.train_env is None:
+            self.logger.error("Agent or environment not initialized. Call setup() first.")
+            raise ValueError("Agent or environment not initialized. Call setup() first.")
+        
+        # Create custom callback
+        save_path = self.training_config.get('save_path', './models/')
+        os.makedirs(save_path, exist_ok=True)
+        
+        callback = TradeCallback(
+            log_dir=self.log_path,
+            save_path=save_path,
+            save_interval=self.training_config.get('save_interval', 10000),
+            eval_interval=self.training_config.get('eval_interval', 5000),
+            eval_env=self.val_env,
+            verbose=1
+        )
+        
+        # Train the agent
+        try:
+            self.train_stats = self.agent.train(
+                total_timesteps=timesteps,
+                callback=callback
+            )
+            
+            self.logger.info(f"Stage training completed: {timesteps} steps")
+            self.logger.info(f"Training statistics: {self.train_stats}")
+        except Exception as e:
+            self.logger.error(f"Error during stage training: {e}")
+            raise
+        
+        return self.train_stats
     
     def save_training_results(self, results: Dict[str, Any], path: Optional[str] = None) -> None:
         """

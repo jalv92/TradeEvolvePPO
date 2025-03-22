@@ -6,14 +6,100 @@ Implements a PPO-based agent for trading.
 import os
 import numpy as np
 import torch
+import torch.nn as nn
 import gymnasium as gym
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-from typing import Dict, Any, Optional, Union, Tuple, List
+from stable_baselines3.common.policies import ActorCriticPolicy
+from typing import Dict, Any, Optional, Union, Tuple, List, Type
+import logging
 
-from training.callback import TradeCallback
+# Importar nuestra política LSTM personalizada
+from agents.lstm_policy import LSTMPolicy
 
+# Configurar logger
+logger = logging.getLogger(__name__)
+
+# NaN Prevention: Clase para detectar y prevenir valores NaN
+class NaNDetector(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.nan_detected = False
+        self.nan_count = 0
+    
+    def detect_nan(self, tensor, tensor_name=""):
+        if torch.isnan(tensor).any():
+            logger.warning(f"NaN detected in {tensor_name}")
+            self.nan_detected = True
+            self.nan_count += 1
+            return True
+        return False
+
+# NaN Prevention: Clase para limitar la desviación estándar
+class StdLimiterCallback:
+    def __init__(self, max_std=5.0, check_freq=100):
+        self.max_std = max_std
+        self.check_freq = check_freq
+        self.step_count = 0
+    
+    def __call__(self, locals, globals):
+        self.step_count += 1
+        if self.step_count % self.check_freq == 0:
+            model = locals['self']
+            if hasattr(model.policy, 'log_std'):
+                # Limitar log_std para prevenir valores extremos
+                with torch.no_grad():
+                    model.policy.log_std.clamp_(min=-5.0, max=np.log(self.max_std))
+            
+            # Verificar si hay NaN en la política
+            for name, param in model.policy.named_parameters():
+                if torch.isnan(param).any():
+                    logger.warning(f"NaN detected in policy parameter {name}. Resetting parameter.")
+                    # Reiniciar el parámetro
+                    if 'log_std' in name:
+                        param.data.fill_(np.log(1.0))
+                    elif 'weight' in name:
+                        nn.init.orthogonal_(param, gain=0.01)
+                    else:
+                        param.data.fill_(0.0)
+        
+        return True
+
+# Modified PPO Policy to handle NaN
+class StablePPOPolicy(ActorCriticPolicy):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.nan_detector = NaNDetector()
+    
+    def forward(self, obs, deterministic=False):
+        latent_pi, latent_vf, latent_sde = self._get_latent(obs)
+        
+        # NaN Prevention: Detectar NaN en los latentes
+        if self.nan_detector.detect_nan(latent_pi, "latent_pi"):
+            # Si detectamos NaN, reiniciar a valores seguros
+            logger.warning("Resetting latent_pi due to NaN values")
+            latent_pi = torch.zeros_like(latent_pi)
+        
+        if self.nan_detector.detect_nan(latent_vf, "latent_vf"):
+            logger.warning("Resetting latent_vf due to NaN values")
+            latent_vf = torch.zeros_like(latent_vf)
+        
+        distribution, values = self._get_action_dist_from_latent(latent_pi, latent_vf)
+        
+        actions = distribution.get_actions(deterministic=deterministic)
+        log_prob = distribution.log_prob(actions)
+        
+        # NaN Prevention: Verificar acciones y probabilidades
+        if self.nan_detector.detect_nan(actions, "actions"):
+            logger.warning("NaN in actions, replacing with zeros")
+            actions = torch.zeros_like(actions)
+        
+        if self.nan_detector.detect_nan(log_prob, "log_prob"):
+            logger.warning("NaN in log_prob, replacing with zeros")
+            log_prob = torch.zeros_like(log_prob)
+        
+        return actions, values, log_prob
 
 class PPOAgent:
     """
@@ -30,6 +116,10 @@ class PPOAgent:
         """
         self.env = env
         self.config = config
+        self.logger = logging.getLogger('ppo_agent')
+        
+        # Mostrar configuración completa
+        self._log_config()
         
         # Extract PPO configuration
         self.ppo_config = config.get('ppo_config', {})
@@ -78,12 +168,32 @@ class PPOAgent:
         sde_sample_freq = self.ppo_config.get('sde_sample_freq', -1)
         target_kl = self.ppo_config.get('target_kl', None)
         tensorboard_log = self.ppo_config.get('tensorboard_log', None)
-        policy_kwargs = self.ppo_config.get('policy_kwargs', None)
-        verbose = self.ppo_config.get('verbose', 1)
+        verbose = self.ppo_config.get('verbose', 0)
+        
+        # Obtener argumentos específicos para LSTMPolicy
+        policy_kwargs = self.ppo_config.get('policy_kwargs', {})
+        
+        # Handle custom policy type
+        if policy_type == 'LSTMPolicy':
+            policy_cls = LSTMPolicy
+            
+            # Asegurar que los parámetros LSTM estén en policy_kwargs
+            lstm_params = {
+                'lstm_hidden_size': self.ppo_config.get('lstm_hidden_size', 256),
+                'num_lstm_layers': self.ppo_config.get('num_lstm_layers', 2),
+                'lstm_bidirectional': self.ppo_config.get('lstm_bidirectional', False)
+            }
+            
+            # Actualizar policy_kwargs con parámetros LSTM si no están presentes
+            for key, value in lstm_params.items():
+                if key not in policy_kwargs:
+                    policy_kwargs[key] = value
+        else:
+            policy_cls = policy_type
         
         # Create the model
         self.model = PPO(
-            policy=policy_type,
+            policy=policy_cls,
             env=self.vec_env,
             learning_rate=learning_rate,
             n_steps=n_steps,
@@ -105,18 +215,31 @@ class PPOAgent:
             device=self.device
         )
     
-    def train(self, callback: Optional[BaseCallback] = None) -> Dict[str, Any]:
+    def _log_config(self):
+        """
+        Registra la configuración completa para referencia.
+        """
+        self.logger.info("Initializing PPO agent with config:")
+        
+        for key, value in self.config.items():
+            self.logger.info(f"  {key}: {value}")
+    
+    def train(self, total_timesteps: Optional[int] = None, callback: Optional[BaseCallback] = None) -> Dict[str, Any]:
         """
         Train the PPO agent.
         
         Args:
+            total_timesteps (Optional[int], optional): Number of timesteps to train for. If None, 
+                                                       uses the value from config. Defaults to None.
             callback (Optional[BaseCallback], optional): Training callback. Defaults to None.
             
         Returns:
             Dict[str, Any]: Training statistics
         """
         # Extract training parameters
-        total_timesteps = self.training_config.get('total_timesteps', 1000000)
+        if total_timesteps is None:
+            total_timesteps = self.training_config.get('total_timesteps', 1000000)
+        
         log_interval = self.training_config.get('log_interval', 1)
         tb_log_name = "ppo_trading"
         reset_num_timesteps = True

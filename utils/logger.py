@@ -6,11 +6,14 @@ Provides logging functionality.
 import os
 import logging
 from typing import Optional
+from logging.handlers import RotatingFileHandler
 
 
 def setup_logger(name: str, 
                 log_file: Optional[str] = None, 
                 level: str = "INFO",
+                console_level: Optional[str] = "WARNING",
+                file_level: Optional[str] = None,
                 format_str: Optional[str] = None) -> logging.Logger:
     """
     Setup logger with file and stream handlers.
@@ -18,7 +21,9 @@ def setup_logger(name: str,
     Args:
         name (str): Logger name
         log_file (Optional[str], optional): Path to log file. Defaults to None.
-        level (str, optional): Logging level. Defaults to "INFO".
+        level (str, optional): General logging level. Defaults to "INFO".
+        console_level (Optional[str], optional): Console logging level. Defaults to "WARNING".
+        file_level (Optional[str], optional): File logging level. Defaults to None (use level).
         format_str (Optional[str], optional): Log format string. Defaults to None.
         
     Returns:
@@ -34,6 +39,10 @@ def setup_logger(name: str,
     }
     level_num = level_dict.get(level.upper(), logging.INFO)
     
+    # Get console and file levels, defaulting to main level if not specified
+    console_level_num = level_dict.get(console_level.upper(), level_num) if console_level else level_num
+    file_level_num = level_dict.get(file_level.upper(), level_num) if file_level else level_num
+    
     # Set default format if not provided
     if format_str is None:
         format_str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -45,23 +54,31 @@ def setup_logger(name: str,
     logger = logging.getLogger(name)
     logger.setLevel(level_num)
     
-    # Clear existing handlers
-    if logger.hasHandlers():
-        logger.handlers.clear()
+    # Remove existing handlers to avoid duplicates
+    if logger.handlers:
+        logger.handlers = []
     
-    # Create console handler
+    # Create console handler with specified log level
     console_handler = logging.StreamHandler()
+    console_handler.setLevel(console_level_num)
+    
+    # Create formatter and add it to the handlers
     console_handler.setFormatter(formatter)
+    
+    # Add console handler to logger
     logger.addHandler(console_handler)
     
-    # Create file handler if log file is provided
-    if log_file is not None:
+    # If log file is provided, add file handler
+    if log_file:
         # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
         
-        # Create file handler
-        file_handler = logging.FileHandler(log_file)
+        # Create file handler which logs all messages
+        file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5)
+        file_handler.setLevel(file_level_num)
         file_handler.setFormatter(formatter)
+        
+        # Add file handler to logger
         logger.addHandler(file_handler)
     
     return logger

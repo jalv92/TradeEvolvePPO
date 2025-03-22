@@ -6,6 +6,7 @@ Handles command line arguments and runs the appropriate mode.
 import os
 import sys
 import time
+import traceback
 import importlib.util
 from typing import Dict, Any
 
@@ -21,6 +22,8 @@ from evaluation.backtest import Backtester
 from utils.logger import setup_logger
 from utils.helpers import parse_args, create_directories, format_time
 
+# Parse command line arguments
+args = parse_args()
 
 def load_dynamic_config(config_path: str) -> Dict[str, Any]:
     """
@@ -63,6 +66,7 @@ def load_dynamic_config(config_path: str) -> Dict[str, Any]:
     
     except Exception as e:
         print(f"Error loading configuration: {e}")
+        print(traceback.format_exc())
         sys.exit(1)
 
 
@@ -74,6 +78,7 @@ def train_mode(args):
         args: Command line arguments
     """
     print("=== TradeEvolvePPO Training Mode ===")
+    print(f"Python version: {sys.version}")
     
     # Load configuration
     config = load_dynamic_config(args.config)
@@ -104,14 +109,46 @@ def train_mode(args):
     logger = setup_logger(
         name='tradeevolveppo',
         log_file=os.path.join(output_dir, 'logs', 'main.log'),
-        level=config['logging_config']['log_level']
+        level=config['logging_config']['log_level'],
+        console_level=config['logging_config'].get('console_level', 'WARNING'),
+        file_level=config['logging_config'].get('file_level', 'INFO')
     )
     
     logger.info("Starting TradeEvolvePPO in training mode")
+    logger.info(f"Python version: {sys.version}")
     logger.info(f"Configuration loaded from {args.config}")
+    logger.info(f"Training with {config['training_config']['total_timesteps']} timesteps")
+    logger.info(f"Device: {'CPU' if args.device == 'cpu' else 'GPU/Auto'}")
+    
+    # Create data loader
+    try:
+        logger.info("Initializing DataLoader")
+        data_loader = DataLoader(config['data_config'])
+        logger.info("DataLoader initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing DataLoader: {e}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)
+    
+    # Load data
+    try:
+        logger.info(f"Loading data from {args.data}")
+        train_data, val_data, test_data = data_loader.prepare_data(args.data)
+        logger.info(f"Data loaded successfully: Train={len(train_data)}, Val={len(val_data)}, Test={len(test_data)}")
+    except Exception as e:
+        logger.error(f"Error loading data: {e}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)
     
     # Create trainer
-    trainer = Trainer(config)
+    try:
+        logger.info("Creating Trainer instance")
+        trainer = Trainer(config)
+        logger.info("Trainer created successfully")
+    except Exception as e:
+        logger.error(f"Error creating Trainer: {e}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)
     
     # Setup training pipeline
     try:
@@ -120,6 +157,7 @@ def train_mode(args):
         logger.info("Training pipeline setup complete")
     except Exception as e:
         logger.error(f"Error setting up training pipeline: {e}")
+        logger.error(traceback.format_exc())
         sys.exit(1)
     
     # Run training
@@ -128,9 +166,11 @@ def train_mode(args):
         start_time = time.time()
         
         if config['training_config'].get('progressive_rewards', False):
+            logger.info("Using progressive rewards training")
             results = trainer.run_progressive_training()
             logger.info("Progressive training completed")
         else:
+            logger.info("Using standard training")
             results = {'stages': [trainer.train()]}
             logger.info("Training completed")
         
@@ -138,11 +178,15 @@ def train_mode(args):
         logger.info(f"Training completed in {format_time(training_time)}")
         
         # Save training results
-        trainer.save_training_results(results, os.path.join(output_dir, 'training_results.json'))
+        results_path = os.path.join(output_dir, 'training_results.json')
+        logger.info(f"Saving training results to {results_path}")
+        trainer.save_training_results(results, results_path)
+        logger.info("Training results saved")
     except KeyboardInterrupt:
         logger.info("Training interrupted by user")
     except Exception as e:
         logger.error(f"Error during training: {e}")
+        logger.error(traceback.format_exc())
         sys.exit(1)
     
     # Run evaluation on test set
@@ -152,6 +196,7 @@ def train_mode(args):
         logger.info(f"Evaluation metrics: {eval_metrics}")
     except Exception as e:
         logger.error(f"Error during evaluation: {e}")
+        logger.error(traceback.format_exc())
     
     logger.info("Training mode completed")
 
@@ -345,9 +390,6 @@ def backtest_mode(args):
 
 def main():
     """Main entry point."""
-    # Parse command line arguments
-    args = parse_args()
-    
     # Run the appropriate mode
     if args.mode == 'train':
         train_mode(args)

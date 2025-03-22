@@ -74,8 +74,8 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description='TradeEvolvePPO - Reinforcement Learning for Trading')
     
-    # Mode argument
-    parser.add_argument('--mode', type=str, choices=['train', 'test', 'backtest'], default='train',
+    # Mode argument (posicional)
+    parser.add_argument('mode', type=str, choices=['train', 'test', 'backtest'],
                         help='Operation mode: train, test, or backtest')
     
     # Configuration arguments
@@ -109,6 +109,10 @@ def parse_args() -> argparse.Namespace:
     # Verbose argument
     parser.add_argument('--verbose', type=int, default=1,
                         help='Verbosity level (0: silent, 1: normal, 2: debug)')
+    
+    # Debug flag
+    parser.add_argument('--debug', action='store_true',
+                        help='Enable debug mode with additional logging')
     
     return parser.parse_args()
 
