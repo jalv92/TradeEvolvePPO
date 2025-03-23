@@ -7,7 +7,8 @@
 **TradeEvolvePPO** is an advanced algorithmic trading system powered by reinforcement learning, specifically using Proximal Policy Optimization (PPO). The system evolves trading strategies through experience, optimizing for profitability while managing risk.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/yourusername/TradeEvolvePPO/main/assets/architecture.png" alt="TradeEvolvePPO Architecture" width="80%">
+  <img src="https://assets.grok.com/users/4e9e72bb-ea6c-47a7-9ca0-a5186702c4ba/EkJ4DpK5JHBSAbXK-generated_image.jpg"
+  alt="TradeEvolvePPO Architecture" width="80%">
 </p>
 
 ## 🌟 Features
