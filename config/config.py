@@ -60,18 +60,17 @@ ENV_CONFIG = {
     
     # Nuevos parámetros para el sistema de recompensas
     'pnl_scale': 5.0,            # Escala para la recompensa de PnL (reducido de 10.0)
-    'inactivity_threshold': 100, # Umbral de pasos para penalizar inactividad
     'position_hold_threshold': 50, # Umbral de pasos para penalizar posiciones mantenidas demasiado tiempo
     'stop_loss_pct': 0.01,       # Porcentaje de stop loss (reducido de 0.02)
     'take_profit_ratio': 2.0,    # Ratio take profit en relación al stop loss (aumentado de 1.5)
     'atr_base': 20.0,            # Valor base para normalizar ATR
     'initial_exploration_steps': 300, # Pasos iniciales con alta probabilidad de exploración
-    'force_action_prob': 0.9,    # Probabilidad de forzar acciones durante exploración
+    'force_action_prob': 0.95,   # Aumentado de 0.9 a 0.95
     'log_reward_components': True, # Registrar componentes de recompensa para análisis
     
     # Parámetros de inactividad
-    'inactivity_threshold': 100,  # Pasos de inactividad antes de penalización (actualizado de 30 a 100)
-    'trivial_trade_threshold': 10.0, # Umbral para considerar una operación como trivial ($)
+    'inactivity_threshold': 20,  # Reducido de 100 a 20
+    'trivial_trade_threshold': 5.0, # Reducido de 10.0 a 5.0
     
     # Factores de normalización
     'position_normalization': 1.0,
@@ -86,7 +85,7 @@ ENV_CONFIG = {
     
     # Parámetros de configuración técnicos
     'observation_type': 'tensor',  # 'tensor' o 'dict'
-    'action_space_type': 'continuous',  # 'discrete' o 'continuous' - ACTUALIZADO A CONTINUOUS
+    'action_space_type': 'continuous',  # 'discrete' o 'continuous'
     
     # Nuevos parámetros para compatibilidad con TradingEnv
     'window_size': 60,           # Tamaño de la ventana de observación
@@ -95,36 +94,36 @@ ENV_CONFIG = {
 
 # Configuración de recompensa - COMPLETAMENTE REEMPLAZADO POR EL NUEVO SISTEMA
 REWARD_CONFIG = {
-    'base_reward': -0.01,             # Penalización base por cada paso (reducida de -0.05)
-    'pnl_weight': 1.0,                # Peso para PnL (reducido de 3.0)
-    'risk_weight': 0.2,               # Peso para riesgo
-    'drawdown_weight': 0.05,          # Peso para drawdown
-    'profit_factor_weight': 0.35,     # Peso para factor de beneficio
-    'win_rate_weight': 0.5,           # Peso para tasa de victorias
-    'inactivity_weight': 0.5,         # Peso para penalización por inactividad (reducido de 2.0)
-    'trade_completion_bonus': 3.0,    # Bonus por completar una operación (reducido de 5.0)
-    'direction_change_bonus': 0.2,    # Bonus por cambiar dirección de trading
-    'diversification_weight': 0.4,    # Peso para diversificación de instrumentos
-    'trade_frequency_target': 0.65,   # Objetivo de frecuencia de trading (% del tiempo en mercado)
-    'scale_factor': 2.0,              # Factor de escala para la recompensa final (reducido de 10.0)
+    'base_reward': -0.002,           # Reducido de -0.01 a -0.002
+    'pnl_weight': 2.5,               # Aumentado de 1.0 a 2.5
+    'risk_weight': 0.1,              # Reducido de 0.2 a 0.1
+    'drawdown_weight': 0.01,         # Significativamente reducido de 0.05 a 0.01
+    'profit_factor_weight': 0.35,    # Sin cambios
+    'win_rate_weight': 0.5,          # Sin cambios
+    'inactivity_weight': 2.0,        # Aumentado de 0.5 a 2.0
+    'trade_completion_bonus': 8.0,   # Significativamente aumentado de 3.0 a 8.0
+    'direction_change_bonus': 0.5,   # Aumentado de 0.2 a 0.5
+    'diversification_weight': 0.4,   # Sin cambios
+    'trade_frequency_target': 0.65,  # Sin cambios
+    'scale_factor': 5.0,             # Aumentado de 2.0 a 5.0
 }
 
 # Configuración del agente PPO - OPTIMIZADA PARA TRADING
 AGENT_CONFIG = {
-    'learning_rate': 0.0001,          # Tasa de aprendizaje del modelo (reducida de 0.001)
-    'n_steps': 8192,                  # Pasos por actualización (reducido de 16384)
-    'batch_size': 1024,               # Tamaño del lote (reducido de 2048)
-    'n_epochs': 10,                   # Épocas por actualización
-    'gamma': 0.99,                    # Factor de descuento (aumentado de 0.90)
-    'gae_lambda': 0.95,               # Lambda para GAE
-    'clip_range': 0.2,                # Rango de recorte para PPO
-    'clip_range_vf': 0.2,             # Rango de recorte para función de valor
-    'normalize_advantage': True,      # Normalizar ventaja
-    'ent_coef': 0.1,                  # Coeficiente de entropía (reducido de 0.5)
-    'vf_coef': 0.5,                   # Coeficiente de función de valor
-    'max_grad_norm': 0.5,             # Norma de gradiente máxima
-    'target_kl': 0.015,               # KL divergencia objetivo
-    'activation_fn': 'tanh',          # Función de activación
+    'learning_rate': 0.0003,          # Aumentado de 0.0001 a 0.0003
+    'n_steps': 8192,                  # Sin cambios
+    'batch_size': 1024,               # Sin cambios
+    'n_epochs': 10,                   # Sin cambios
+    'gamma': 0.95,                    # Reducido de 0.99 a 0.95 para priorizar recompensas a corto plazo
+    'gae_lambda': 0.95,               # Sin cambios
+    'clip_range': 0.2,                # Sin cambios
+    'clip_range_vf': 0.2,             # Sin cambios
+    'normalize_advantage': True,      # Sin cambios
+    'ent_coef': 0.3,                  # Significativamente aumentado de 0.1 a 0.3
+    'vf_coef': 0.5,                   # Sin cambios
+    'max_grad_norm': 0.5,             # Sin cambios
+    'target_kl': 0.015,               # Sin cambios
+    'activation_fn': 'tanh',          # Sin cambios
     'net_arch': [
         {
             'pi': [512, 256, 128],    # Arquitectura de política
@@ -138,9 +137,9 @@ AGENT_CONFIG = {
         'attention_dropout': 0.1,     # Dropout de atención
     },
     'exploration_config': {
-        'exploration_steps': 500000,  # Pasos de exploración forzada (reducido de 1000000)
-        'exploration_prob': 0.3,      # Probabilidad de exploración (reducida de 0.4)
-        'inactivity_threshold': 50,   # Umbral de inactividad
+        'exploration_steps': 1000000,  # Aumentado de 500000 a 1000000
+        'exploration_prob': 0.5,      # Aumentado de 0.3 a 0.5
+        'inactivity_threshold': 20,   # Reducido de 50 a 20
     }
 }
 

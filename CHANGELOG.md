@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.87] - 2025-03-25 13:17:45
+
+### Corregido
+- Solucionado problema crítico de falta de operaciones durante el entrenamiento:
+  - Implementada solución integral al desequilibrio del sistema de recompensas
+  - Corregida penalización por inactividad que era demasiado débil (dividida por 10 en lugar de 100)
+  - Mejorada interpretación de acciones con umbrales más decisivos (0.3 en lugar de 0.5)
+  - Implementado sistema de monitoreo en tiempo real de comportamiento de trading
+
+### Mejorado
+- Sistema de recompensas optimizado para incentivar el trading:
+  - Reducida penalización base por cada paso de -0.01 a -0.002
+  - Aumentado el peso del PnL de 1.0 a 2.5
+  - Reducido peso de drawdown de 0.05 a 0.01
+  - Aumentado peso de inactividad de 0.5 a 2.0
+  - Incrementado bonus por completar operaciones de 3.0 a 8.0
+  - Aumentado factor de escala de recompensa de 2.0 a 5.0
+
+### Optimizado
+- Parámetros de exploración del agente PPO:
+  - Aumentado coeficiente de entropía de 0.1 a 0.3
+  - Incrementados pasos de exploración de 500K a 1M
+  - Aumentada probabilidad de exploración de 0.3 a 0.5
+  - Reducido umbral de inactividad de 50 a 20
+  - Disminuido gamma de 0.99 a 0.95 para priorizar recompensas a corto plazo
+
+### Añadido
+- Nuevo script `train_enhanced.py` con características avanzadas:
+  - Sistema de monitoreo de distribución de acciones en tiempo real
+  - Detección automática de comportamiento sin operaciones
+  - Ajuste dinámico de parámetros de exploración durante el entrenamiento
+  - Métricas detalladas de trading con visualización mejorada
+  - Sistema de guardado de configuración y modelos con timestamps
+
 ## [0.1.86] - 2025-03-24 22:10:52
 
 ### Corregido

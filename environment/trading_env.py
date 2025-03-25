@@ -394,7 +394,7 @@ class TradingEnv(gym.Env):
         
         # 6. Penalización por inactividad
         if self.inactive_steps > 0:
-            inactivity_penalty = -self.inactive_steps * self.reward_config.get('inactivity_weight', 2.0) / 100
+            inactivity_penalty = -self.inactive_steps * self.reward_config.get('inactivity_weight', 2.0) / 10
             reward += inactivity_penalty
         
         # 7. Penalización por mantener posiciones demasiado tiempo
@@ -450,6 +450,13 @@ class TradingEnv(gym.Env):
         if isinstance(action_taken, (np.ndarray, list)):
             if len(action_taken) > 0:
                 action_value = action_taken[0]
+                # Usar umbrales más decisivos para la selección de acciones
+                if action_value > 0.3:  # Cambiado de 0.5 a 0.3
+                    action_value = 1    # Comprar/Long
+                elif action_value < -0.3:  # Cambiado de -0.5 a -0.3
+                    action_value = 2    # Vender/Short
+                else:
+                    action_value = 0    # Cerrar/Hold
             else:
                 action_value = 0
         else:
