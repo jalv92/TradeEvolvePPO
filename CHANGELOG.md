@@ -1,5 +1,215 @@
 # Changelog
 
+## [0.4.1] - 2025-03-25 22:30:45
+
+### Implementado
+- **Sistema anti-sobretrading para operaciones más sostenibles**:
+  - Implementado tiempo de enfriamiento obligatorio entre operaciones (10 pasos)
+  - Aumentados significativamente los umbrales para cambio de posición (0.4 → 0.7)
+  - Añadida penalización severa (-8.0) por operaciones de corta duración
+  - Implementado factor de duración que aumenta el PnL según el tiempo de operación (hasta 2x)
+  - Añadido bonus por duración de operaciones que crece con el tiempo
+
+### Mejorado
+- **Sistema de recompensas rebalanceado**:
+  - Reforzado el factor de tiempo para posiciones rentables (hasta 2.0x)
+  - Incrementado factor de beneficio para posiciones rentables (hasta 2.0x)
+  - Duplicado el multiplicador para recompensas por mantener (5.0 → 10.0)
+  - Registrada duración de posiciones para análisis y ajuste de recompensas
+  - Mejorado logging para visibilidad del impacto de duración en recompensas
+
+### Optimizado
+- **Parámetros de entrenamiento anti-sobretrading**:
+  - Añadida configuración para duración mínima de operaciones (5 pasos)
+  - Implementado registro de factores de duración aplicados a operaciones
+  - Aplicación selectiva de penalizaciones (mayores para operaciones muy cortas)
+  - Mecanismo de cierre diferido para posiciones altamente rentables
+  - Ignoradas acciones de apertura durante períodos de enfriamiento
+
+## [0.4.0] - 2025-03-25 21:45:55
+
+### Implementado
+- **Curriculum Learning para desarrollo de estrategias sostenibles**:
+  - Fase 1 (0-25%): Alta exploración, muchas operaciones, sin penalización por sobretrading
+  - Fase 2 (25-50%): Transición gradual con incentivos crecientes para operaciones de mayor duración
+  - Fase 3 (50-100%): Consolidación de estrategia, con fuerte incentivo para mantener posiciones rentables
+  - Evolución dinámica de parámetros a lo largo del entrenamiento
+
+- **Sistema de recompensas mejorado**:
+  - Añadida recompensa específica para mantener posiciones rentables a lo largo del tiempo
+  - Implementado factor de tiempo (mayor recompensa cuanto más tiempo se mantiene posición)
+  - Implementado factor de beneficio (mayor recompensa cuanto más rentable es la posición)
+  - Añadida penalización configurable por sobretrading (evitar operaciones muy seguidas)
+  - Implementado sistema de recompensas retrasadas para aprendizaje a largo plazo
+
+- **Aprendizaje supervisado avanzado**:
+  - Entropía decreciente progresiva (desde 0.3 hasta 0.02)
+  - Umbral más alto para cambiar posiciones (0.3 → 0.4)
+  - Parámetros PPO optimizados para capturar patrones a largo plazo
+
+### Mejorado
+- **Optimización de hiperparámetros**:
+  - Aumentado tamaño de buffer (n_steps) a 2048 para series temporales más largas
+  - Incrementado batch_size a 256 para mejor generalización
+  - Aumentado número de épocas a 15 para aprovechar mejor los datos
+  - Mejorado gae_lambda a 0.97 para mejor estimación de ventaja
+  - Aumentado gamma a 0.95 para valorar más las recompensas futuras
+
+- **Sistema de visualización de operaciones**:
+  - Añadida duración de operaciones en la visualización
+  - Implementado manejo mejorado de errores para visualización de operaciones
+  - Detección y conversión automática de formato de operaciones
+
+- **Normalización de recompensas**:
+  - Implementada compresión logarítmica para valores extremos de recompensa
+  - Añadido clipping para mantener recompensas en rangos razonables
+  - Mejor balanceo entre diferentes componentes de recompensa
+
+## [0.3.8] - 2025-03-25 20:15:40
+
+### Corregido
+- Solucionado error crítico en el historial de operaciones:
+  - Error: "KeyError: 'direction'" al intentar mostrar el historial de operaciones
+  - Añadido campo 'direction' a todas las operaciones registradas
+  - Implementado manejo robusto de errores en la visualización de operaciones
+  - Conversión automática de posición numérica a etiqueta textual ('long'/'short')
+
+### Mejorado
+- Sistema de recompensas optimizado para incentivar más operaciones:
+  - Añadido bonus explícito (2.0) por abrir posición
+  - Incrementado el bonus por completar operaciones de 10.0 a 12.0
+  - Aumentado el bonus por operaciones ganadoras de 50% a 80%
+  - Reducido el umbral de penalización por mantener posiciones (de 20 a 15 pasos)
+  - Aumentado el factor de escala para amplificar todas las recompensas (de 10.0 a 12.0)
+  - Nuevo sistema de registro detallado de componentes de recompensa
+
+### Implementado
+- Monitorización adecuada de entornos:
+  - Añadido wrapper Monitor a todos los entornos para registro de métricas
+  - Solucionada advertencia "Evaluation environment is not wrapped with Monitor"
+  - Implementados flags para rastrear aperturas y cierres de posiciones
+  - Mejorado el seguimiento del PnL y recompensas por operación
+
+## [0.3.7] - 2025-03-25 19:15:30
+
+### Corregido
+- Solucionado error crítico en la clase `PPOAgent`:
+  - Error: "The environment is of type VecNormalize, not a Gymnasium environment"
+  - Implementada detección inteligente para verificar si el entorno ya está vectorizado
+  - Eliminada la doble vectorización que estaba causando el error
+  - Mejorado el sistema de logging para proporcionar información sobre el estado del entorno
+
+### Implementado
+- Compatibilidad mejorada con entornos pre-vectorizados:
+  - Manejo adecuado de VecEnv y sus subclases (VecNormalize, etc.)
+  - Mayor flexibilidad para trabajar con diferentes configuraciones de entorno
+  - Conservación de las propiedades de normalización configuradas externamente
+
+## [0.3.6] - 2025-03-25 18:45:10
+
+### Corregido
+- Solucionado error crítico en el sistema de evaluación durante el entrenamiento:
+  - Error: "Error while synchronizing normalization stats"
+  - Implementado callback personalizado (CustomEvalCallback) para manejo adecuado de la sincronización
+  - Corregida la inicialización de entornos para mantener coherencia entre entrenamiento y evaluación
+  - Mejorada la gestión de nombres de variables para claridad (train_vec_env, eval_vec_env)
+  - Añadida limitación de pasos máximos (500) para evitar loops infinitos en evaluación
+
+### Mejorado
+- Robustez general del sistema de entrenamiento:
+  - Forzado el uso de CPU para el modelo para evitar problemas de incompatibilidad con GPU
+  - Mejorado el manejo de errores para evitar terminaciones abruptas
+  - Optimizado el formato de visualización de operaciones
+  - Añadido sistema de almacenamiento estructurado para modelos en la carpeta 'models'
+  - Silenciado el logger de gymnasium para evitar advertencias innecesarias
+
+## [0.3.5] - 2025-03-25 17:55:20
+
+### Corregido
+- Solucionado error crítico en la configuración de los entornos de vectorización y normalización:
+  - Error: "Error while synchronizing normalization stats: expected the eval env to be a VecEnvWrapper"
+  - Implementada vectorización consistente para entornos de entrenamiento y evaluación
+  - Añadida normalización de observaciones con VecNormalize a todos los entornos
+  - Sincronizadas estadísticas entre entornos para garantizar consistencia
+  - Mejorada la evaluación final con entorno dedicado para probar el modelo entrenado
+
+### Mejorado
+- Robustez en el flujo de entrenamiento y evaluación:
+  - Implementado manejo de excepciones durante el entrenamiento
+  - Añadida captura detallada de errores en la fase de evaluación
+  - Optimizado el proceso de evaluación para generar suficientes operaciones de muestra
+  - Configurados parámetros específicos para cada tipo de entorno (training, validation, test)
+
+## [0.3.4] - 2025-03-25 17:20:35
+
+### Corregido
+- Solucionado error crítico en el método `_get_observation` que impedía el entrenamiento:
+  - Error: "could not broadcast input array from shape (60,21) into shape (60,25)"
+  - Implementada adaptación dinámica de las dimensiones de observación
+  - Añadido relleno automático para datos con menos de 25 características
+  - Recorte automático para datos con más de 25 características
+  - Verificación final de forma para garantizar observaciones de tamaño (window_size, 25)
+
+### Mejorado
+- Robustez del sistema de observación del entorno:
+  - Manejo correcto de excepciones durante la extracción de datos
+  - Respuesta adecuada ante datos insuficientes o malformados
+  - Mensajes de depuración detallados sobre la forma de los datos
+  - Normalización preservando las dimensiones correctas
+
+## [0.3.3] - 2025-03-25 16:45:12
+
+### Añadido
+- Creado script `train_test.py` para ejecución rápida de pruebas de entrenamiento:
+  - Configurado para ejecutar 10,000 pasos de entrenamiento
+  - Optimizado para fomentar la apertura de operaciones con alta entropía (0.3)
+  - Implementada evaluación cada 1,000 pasos para monitoreo de progreso
+  - Añadido sistema de visualización de últimas operaciones realizadas
+
+### Implementado
+- Configuración específica para pruebas de entrenamiento:
+  - Penalización por inactividad incrementada (2.0) para forzar operaciones
+  - Bonus por completar operaciones aumentado (10.0)
+  - Umbral de inactividad reducido a 20 pasos
+  - Recompensa base negativa (-0.05) para incentivar acciones
+
+## [0.3.2] - 2025-03-25 15:30:45
+
+### Corregido
+- Solucionado error en el método `_get_observation` del entorno:
+  - Corregido problema con el atributo `normalize_observation` inexistente
+  - Añadido manejo adecuado de configuración de normalización desde el diccionario config
+  - Implementada normalización opcional con StandardScaler cuando está habilitada
+  - Mejorado filtrado de datos para manejar correctamente las columnas no numéricas
+  - Optimizado manejo de excepciones con logging detallado de trazas de error
+
+### Validado
+- Verificado funcionamiento del entorno con diagnósticos exhaustivos:
+  - Ejecutado script de diagnóstico con múltiples patrones de acción
+  - Confirmados ciclos completos de apertura y cierre de posiciones
+  - Validada la gestión adecuada de balance y operaciones
+
+## [0.3.1] - 2025-03-25 14:25:30
+
+### Corregido
+- Solución definitiva al problema crítico que impedía la ejecución de operaciones:
+  - Identificados y corregidos errores en los métodos `_open_position` y `_close_position`
+  - Mejorada la implementación del método `get_performance_summary` para usar el nuevo formato de trades
+  - Corregidas validaciones en la función `step` que provocaban que no se ejecutaran operaciones
+  - Eliminadas dependencias de atributos que podían no existir en ciertas configuraciones
+
+### Implementado
+- Herramientas de diagnóstico completas para verificar el funcionamiento del entorno:
+  - Creado script de comparación `compare_environments.py` para analizar el comportamiento entre entornos
+  - Implementado entorno simplificado `SimpleTradingEnv` como referencia para testing
+  - Añadida instrumentación con logs detallados en puntos críticos del código
+
+### Confirmado
+- Verificado funcionamiento correcto del entorno mediante pruebas:
+  - Validado que el entorno ahora ejecuta operaciones de compra y venta correctamente
+  - Confirmado que el sistema registra adecuadamente las transacciones en la lista de trades
+  - Comprobado balance actualizado correctamente después de operaciones
+
 ## [0.1.87] - 2025-03-25 13:17:45
 
 ### Corregido
@@ -372,212 +582,4 @@
 ## [0.1.61] - 2025-03-22 16:10
 
 ### Añadido
-- Método `update_data` en la clase `TradingEnv` para actualizar datos en tiempo real:
-  - Solucionado error "Must have equal len keys and value when setting with an iterable"
-  - Implementada validación de columnas requeridas en los datos recibidos
-  - Añadido soporte para actualizar datos sin reiniciar el entorno
-
-### Mejorado
-- Proceso de actualización de entorno con datos de NinjaTrader 8
-
-## [0.1.60] - 2025-03-22 15:45
-
-### Añadido
-- Nueva clase `PPOAgentInference` para cargar modelos pre-entrenados:
-  - Implementada versión simplificada para uso exclusivo en inferencia
-  - Solucionado error `PPOAgent.__init__() missing 1 required positional argument: 'config'`
-  - Añadido soporte para carga directa de modelos Stable-Baselines3
-
-### Cambiado
-- Mejorado método `_setup_environment_and_model()` para usar la nueva clase de inferencia
-- Simplificado proceso de carga de modelos para operación en vivo
-
-## [0.1.59] - 2025-03-22 15:35
-
-### Corregido
-- Error en el entorno TradingEnv que impedía su inicialización con DataFrame vacío:
-  - Eliminada validación `Data length (0) must be greater than window size (60)` para el modo "inference"
-  - Permitida inicialización del entorno sin datos históricos para operación en vivo
-  - Adaptado el entorno para recibir datos en tiempo real de NinjaTrader 8
-
-## [0.1.58] - 2025-03-22 15:20
-
-### Corregido
-- Error crítico al intentar utilizar el modelo con NinjaTrader 8:
-  - Añadida verificación para manejar DataFrames vacíos en TradingEnv
-  - Implementada solución al error "zero-size array to reduction operation minimum which has no identity"
-  - Añadidos valores predeterminados para la normalización de precios cuando no hay datos iniciales
-
-## [0.1.57] - 2025-03-22 15:10
-
-### Corregido
-- Error al inicializar el entorno TradingEnv:
-  - Añadido DataFrame vacío como parámetro requerido en la creación del entorno
-  - Implementado manejo adecuado de columnas del DataFrame inicial
-  - Solucionado error "TradingEnv.__init__() missing 1 required positional argument: 'data'"
-
-### Cambiado
-- Mejorada implementación del método `_setup_environment_and_model()` para compatibilidad con NinjaTrader 8
-
-## [0.1.56] - 2025-03-22 14:45
-
-### Añadido
-- Configurado sistema para evaluar el modelo "2Model" en NinjaTrader 8:
-  - Corregido script `nt8_trader.py` para funcionar con el modelo entrenado
-  - Preparada conexión con NinjaTrader 8 a través del puerto 5555
-  - Configurado ambiente de ejecución para evaluación en tiempo real
-
-### Cambiado
-- Ajustado método `_setup_environment_and_model()` para cargar correctamente el modelo
-- Corregida inicialización del DataLoader
-
-## [0.1.55] - 2025-03-22 14:23
-
-### Añadido
-- Iniciado entrenamiento del modelo "2Model":
-  - Training ejecutándose satisfactoriamente con 2 millones de pasos objetivo
-  - Corregido configuración del logger para usar niveles de logging como strings
-  - Añadido logging detallado para seguimiento de progreso
-
-### Cambiado
-- Mejorado script `train_2model.py` para facilitar monitoreo de entrenamiento:
-  - Implementado mejor manejo de excepciones
-  - Agregado reportes de métricas en tiempo real
-
-## [0.1.54] - 2025-03-22 14:02
-
-### Añadido
-- Creado nuevo script `train_2model.py` para iniciar entrenamiento optimizado:
-  - Configurado para ejecutar 2 millones de pasos (antes 800k)
-  - Implementado sistema de directorios específicos para resultados
-  - Agregado logging detallado de parámetros de entrenamiento
-
-### Cambiado
-- Optimizado sistema de recompensas para fomentar trading más activo:
-  - Aumentado peso de recompensa PnL de 1.0 a 1.5
-  - Incrementado penalización por inactividad de -0.05 a -0.08
-  - Reducido umbral de inactividad de 100 a 50 pasos
-  - Balanceado mejor las recompensas (open_reward: 0.15, win_reward: 0.4)
-- Mejorado algoritmo PPO para mayor exploración y eficiencia:
-  - Aumentado coeficiente de entropía de 0.1 a 0.15
-  - Reducido factor gamma de 0.95 a 0.92 para priorizar recompensas inmediatas
-  - Duplicado tamaño de n_steps de 256 a 512 para capturar secuencias más largas
-- Actualizado curriculum learning para 2M de pasos:
-  - Nuevos puntos de progresión: [200k, 600k, 1.2M, 1.8M]
-  - Umbrales de inactividad progresivamente más estrictos: [50, 40, 30, 20]
-
-## [0.1.53] - 2025-03-22 09:45
-
-### Añadido
-- Implementado nuevo sistema de recompensas basado en principios de trading profesional:
-  - Recompensa fija (+0.1) por tomar acción para fomentar la exploración desde el inicio
-  - Recompensa por PnL normalizada por tamaño de posición y precio de entrada
-  - Recompensa específica (+0.5) por usar correctamente stop-loss y take-profit
-  - Sistema de penalización por operar en alta volatilidad sin éxito
-  - Mecanismo completo de seguimiento de componentes de recompensa para análisis
-
-### Cambiado
-- Rediseñada completamente la función de recompensa en el entorno de trading:
-  - Reemplazado sistema anterior por arquitectura más clara y modular
-  - Actualizado método de seguimiento de pasos con posición e inactividad
-  - Modificada la gestión de posiciones para el nuevo modelo de recompensas
-  - Ajustado el espacio de acción a formato continuo para mejor control
-  - Balanceados valores de componentes para equilibrar recompensas/penalizaciones
-
-### Optimizado
-- Mejorado el sistema de entrenamiento forzado para garantizar exploración:
-  - Periodo inicial de 300 pasos con 90% de probabilidad de acciones aleatorias
-  - Implementación de forzado adicional cuando hay inactividad prolongada
-  - Sistema de cierre forzado de posiciones mantenidas por más de 40 pasos
-  - Actualización de hiperparámetros PPO para mejor aprovechamiento de GPU
-
-## [0.1.52] - 2025-03-22 04:15
-
-### Cambiado
-- Mejorado sistema de logging para reducir la verbosidad en la consola:
-  - Separación de niveles de log para consola (WARNING) y archivos (INFO)
-  - Consola muestra solo mensajes importantes mientras archivos mantienen detalles completos
-  - Implementado contador para limitar logs de depuración LSTM (solo cada 100 iteraciones)
-
-### Optimizado
-- Visualización en terminal más clara durante entrenamiento:
-  - Eliminado exceso de mensajes de depuración que dificultaban seguir el progreso
-  - Mantenida toda la información detallada en archivos de log para análisis posterior
-  - Mejorada capacidad de monitoreo de progreso de entrenamiento en tiempo real
-
-## [0.1.51] - 2025-03-22 03:55
-
-### Corregido
-- Error crítico en la implementación de LSTMPolicy con DiagGaussianDistribution:
-  - Añadido parámetro self.log_std inicializado como nn.Parameter(torch.zeros(action_space.shape[0]))
-  - Actualizado método forward() para pasar correctamente mean_actions y log_std a la distribución
-  - Corregidas todas las referencias a proba_distribution() para incluir el parámetro log_std
-  - Modificados métodos evaluate_actions() y _predict() para utilizar el parámetro log_std
-  - Solucionado error TypeError: DiagGaussianDistribution.proba_distribution() missing 1 required positional argument: 'log_std'
-
-### Optimizado
-- Implementación mejorada de LSTM para mejor rendimiento:
-  - Refinado el sistema de preprocesamiento de observaciones para LSTM
-  - Mejorada la gestión de dimensiones de entrada/salida
-  - Añadidos registros detallados para facilitar la depuración durante el entrenamiento
-  - Verificado rendimiento con aceleración CUDA
-
-## [0.1.50] - 2025-03-22 04:05
-
-### Cambiado
-- Reemplazada arquitectura híbrida por arquitectura puramente LSTM:
-  - Eliminada completamente la arquitectura MLP posterior al LSTM
-  - Implementado modelo LSTM puro para política y función de valor
-  - Simplificada la estructura de la red neuronal eliminando capas innecesarias
-  - Optimizada la implementación para aprovechar mejor la GPU
-
-### Corregido
-- Inconsistencias en la implementación anterior:
-  - Eliminada la clase LSTMExtractor que servía como intermediaria
-  - Corregidos parámetros para utilizar el mismo LSTM para política y valor
-  - Simplificada la configuración al eliminar configuraciones MLP redundantes
-  - Mejorada la compatibilidad con stable-baselines3 implementando todos los métodos necesarios
-
-## [0.1.49] - 2025-03-22 03:35
-
-### Añadido
-- Implementación de redes LSTM para mejorar el aprovechamiento de GPU:
-  - Desarrollado archivo `agents/lstm_policy.py` con arquitectura LSTM completa
-  - Creadas clases LSTMPolicy y LSTMExtractor para procesamiento de series temporales
-  - Incorporado soporte para LSTM bidireccional (configurable)
-  - Configurado uso de múltiples capas LSTM apiladas (2 por defecto)
-
-### Optimizado
-- Mejoras en la configuración para aprovechar GPU:
-  - Reducción del tamaño de red MLP posterior al procesamiento LSTM
-  - Configuración de tamaño de LSTM (256) y dimensiones de características (128)
-  - Implementación de batch_first=True para mejor rendimiento en GPU
-  - Parámetros específicos para LSTM centralizados en archivo de configuración
-
-### Cambiado
-- Modificado `agents/ppo_agent.py` para usar LSTM:
-  - Añadida detección de política LSTM personalizada
-  - Ajustada creación del modelo PPO para utilizar la nueva arquitectura
-  - Mantenida compatibilidad con políticas anteriores
-
-## [0.1.48] - 2025-03-22 08:30
-
-### Añadido
-- Sistema de recompensa por exploración y curiosidad:
-  - Nueva componente de recompensa específica para exploración con peso 1.0
-  - Bonus significativo (0.2) por abrir operaciones nuevas
-  - Incentivo (0.1) por alternar entre posiciones largas y cortas
-  - Mecanismo de entrenamiento forzado extendido a 300 pasos (era 150)
-  - Recompensa adicional por mantener posiciones activas en el mercado
-
-### Cambiado
-- Reestructuración completa del sistema de recompensas:
-  - Reducción del peso de PnL de 1.2 a 0.8 para favorecer exploración
-  - Aumento de win_rate_weight de 0.3 a 0.4 para incentivar aciertos
-  - Reducción de penalizaciones por pérdidas de 0.8 a 0.5
-  - Forzado probabilístico de operaciones cuando hay inactividad (25+ pasos)
-  - Aumento del período de mantenimiento máximo de posiciones de 30 a 40 pasos
-
-### Optimizado
-- Hiperparámetros de PPO para maximizar exploración:
-  - Increment
+- Método `update_data`

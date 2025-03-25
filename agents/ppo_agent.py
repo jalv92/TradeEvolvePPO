@@ -10,7 +10,7 @@ import torch.nn as nn
 import gymnasium as gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CallbackList
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize, VecEnv
 from stable_baselines3.common.policies import ActorCriticPolicy
 from typing import Dict, Any, Optional, Union, Tuple, List, Type
 import logging
@@ -131,19 +131,25 @@ class PPOAgent:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
         
-        # Create vectorized environment
-        self.vec_env = DummyVecEnv([lambda: env])
-        
-        # Normalize the environment (optional)
-        self.vec_env = VecNormalize(
-            self.vec_env,
-            norm_obs=True,
-            norm_reward=True,
-            clip_obs=10.0,
-            clip_reward=10.0,
-            gamma=self.ppo_config.get('gamma', 0.99),
-            epsilon=1e-8
-        )
+        # Verificar si el entorno ya está vectorizado
+        if isinstance(env, VecEnv):
+            self.logger.info("El entorno ya está vectorizado")
+            self.vec_env = env
+        else:
+            # Create vectorized environment
+            self.logger.info("Vectorizando el entorno")
+            self.vec_env = DummyVecEnv([lambda: env])
+            
+            # Normalize the environment (optional)
+            self.vec_env = VecNormalize(
+                self.vec_env,
+                norm_obs=True,
+                norm_reward=True,
+                clip_obs=10.0,
+                clip_reward=10.0,
+                gamma=self.ppo_config.get('gamma', 0.99),
+                epsilon=1e-8
+            )
         
         # Create the PPO model
         self.model = None
