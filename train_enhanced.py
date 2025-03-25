@@ -178,8 +178,8 @@ def main():
     training_config.update({
         'save_path': os.path.join(output_dir, 'models'),
         'log_path': os.path.join(output_dir, 'logs'),
-        'total_timesteps': 2000000,  # 2 millones de pasos
-        'progressive_steps': [200000, 600000, 1200000, 1800000],
+        'total_timesteps': 250000,  # Reducido de 2M a 250K pasos para prueba
+        'progressive_steps': [50000, 100000, 150000, 200000],  # Ajustado para 250K pasos
         'eval_freq': 5000
     })
     

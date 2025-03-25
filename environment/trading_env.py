@@ -309,10 +309,12 @@ class TradingEnv(gym.Env):
                             # Asegurar que tenemos exactamente 25 columnas de características (requerido para el espacio de observación)
                             num_columns = data_slice.shape[1]
                             if num_columns < 25:
+                                # Crear una copia del DataFrame para evitar SettingWithCopyWarning
+                                data_slice_copy = data_slice.copy()
                                 # Añadir columnas adicionales con ceros si hacen falta dimensiones
                                 for i in range(num_columns, 25):
-                                    # Usar .loc para evitar SettingWithCopyWarning
-                                    data_slice.loc[:, f'feature_{i}'] = 0.0
+                                    data_slice_copy[f'feature_{i}'] = 0.0
+                                data_slice = data_slice_copy
                         
                         # Copiar los datos disponibles a la parte final
                         normalized_window[padding:] = data_slice.values
@@ -329,10 +331,12 @@ class TradingEnv(gym.Env):
                         # Asegurar que tenemos exactamente 25 columnas de características (requerido para el espacio de observación)
                         num_columns = data_slice.shape[1]
                         if num_columns < 25:
+                            # Crear una copia del DataFrame para evitar SettingWithCopyWarning
+                            data_slice_copy = data_slice.copy()
                             # Añadir columnas adicionales con ceros si hacen falta dimensiones
                             for i in range(num_columns, 25):
-                                # Usar .loc para evitar SettingWithCopyWarning
-                                data_slice.loc[:, f'feature_{i}'] = 0.0
+                                data_slice_copy[f'feature_{i}'] = 0.0
+                            data_slice = data_slice_copy
                     
                     # Verificación final
                     final_observation = data_slice.values.astype(np.float32)
