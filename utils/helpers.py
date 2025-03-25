@@ -147,3 +147,42 @@ def format_time(seconds: float) -> str:
         return f"{m}m {s}s"
     else:
         return f"{s}s"
+
+
+def save_model(model, path: str) -> None:
+    """
+    Save a model to a file.
+    
+    Args:
+        model: Model to save (typically a Stable Baselines3 model)
+        path (str): Path to save the model
+    """
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    
+    # Save model
+    model.save(path)
+
+
+def load_model(model_cls, path: str, env=None, **kwargs) -> Any:
+    """
+    Load a model from a file.
+    
+    Args:
+        model_cls: Model class (e.g., PPO)
+        path (str): Path to the model file
+        env: Environment to use with the model (optional)
+        **kwargs: Additional arguments to pass to the model's load method
+        
+    Returns:
+        Any: Loaded model
+    """
+    # Check if file exists
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Model file not found: {path}")
+    
+    # Load model
+    if env is not None:
+        return model_cls.load(path, env=env, **kwargs)
+    else:
+        return model_cls.load(path, **kwargs)

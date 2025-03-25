@@ -93,9 +93,9 @@ class NT8Trader:
                  quantity: int = 1,
                  config: Optional[Dict[str, Any]] = None,
                  data_path: Optional[str] = None,
-                 update_interval: int = 30,
-                 min_bars_required: int = 1,
-                 cooldown_period: int = 15):
+                 update_interval: int = 60,
+                 min_bars_required: int = 20,
+                 cooldown_period: int = 30):
         """
         Inicializa el trader para NinjaTrader 8.
         
@@ -516,10 +516,9 @@ class NT8Trader:
                 # Normalizar valores a rango -1 a 1 si es necesario
                 if -1.0 <= action_value <= 1.0:
                     # Convertir valores continuos (-1 a 1) a discretos (0, 1, 2)
-                    # Umbrales reducidos para hacer el modelo más propenso a abrir operaciones
-                    if action_value < -0.1:  # Vender (umbral reducido de -0.3 a -0.1)
+                    if action_value < -0.3:  # Vender
                         discrete_action = 2
-                    elif action_value > 0.1:  # Comprar (umbral reducido de 0.3 a 0.1)
+                    elif action_value > 0.3:  # Comprar
                         discrete_action = 1
                     else:  # Mantener
                         discrete_action = 0
@@ -711,9 +710,9 @@ def main():
     parser.add_argument('--port', type=int, default=5555, help='Puerto TCP del servidor')
     parser.add_argument('--quantity', type=int, default=1, help='Cantidad de contratos')
     parser.add_argument('--data', type=str, help='Ruta a datos históricos para inicializar')
-    parser.add_argument('--interval', type=int, default=30, help='Intervalo de actualización en segundos')
-    parser.add_argument('--min-bars', type=int, default=1, help='Mínimo de barras requeridas para empezar a operar')
-    parser.add_argument('--cooldown', type=int, default=15, help='Período de enfriamiento entre operaciones (segundos)')
+    parser.add_argument('--interval', type=int, default=60, help='Intervalo de actualización en segundos')
+    parser.add_argument('--min-bars', type=int, default=20, help='Mínimo de barras requeridas para empezar a operar')
+    parser.add_argument('--cooldown', type=int, default=30, help='Período de enfriamiento entre operaciones (segundos)')
     parser.add_argument('--force-cpu', action='store_true', help='Forzar el uso de CPU en lugar de GPU')
     parser.add_argument('--log-level', type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], default='INFO', 
                        help='Nivel de detalle de los logs')

@@ -224,60 +224,45 @@ class PPOAgent:
         for key, value in self.config.items():
             self.logger.info(f"  {key}: {value}")
     
-    def train(self, total_timesteps: Optional[int] = None, callback: Optional[BaseCallback] = None) -> Dict[str, Any]:
+    def train(self, total_timesteps: int = None, callback = None) -> Dict[str, Any]:
         """
-        Train the PPO agent.
+        Train the agent.
         
         Args:
-            total_timesteps (Optional[int], optional): Number of timesteps to train for. If None, 
-                                                       uses the value from config. Defaults to None.
-            callback (Optional[BaseCallback], optional): Training callback. Defaults to None.
+            total_timesteps (int, optional): Number of timesteps to train for. Defaults to None.
+            callback (Optional[BaseCallback], optional): Callback to use during training. Defaults to None.
             
         Returns:
             Dict[str, Any]: Training statistics
         """
-        # Extract training parameters
+        if self.model is None:
+            raise ValueError("Model not initialized. Call setup() first.")
+        
         if total_timesteps is None:
             total_timesteps = self.training_config.get('total_timesteps', 1000000)
         
-        log_interval = self.training_config.get('log_interval', 1)
-        tb_log_name = "ppo_trading"
-        reset_num_timesteps = True
+        self.logger.info(f"Starting training for {total_timesteps} timesteps")
         
-        # Create callback if not provided
-        if callback is None:
-            log_dir = self.training_config.get('log_path', './logs/')
-            save_path = self.training_config.get('save_path', './models/')
-            save_interval = self.training_config.get('save_interval', 10000)
-            eval_interval = self.training_config.get('eval_interval', 5000)
-            
-            # Create a custom callback
-            callback = TradeCallback(
-                log_dir=log_dir,
-                save_path=save_path,
-                save_interval=save_interval,
-                eval_interval=eval_interval,
-                verbose=1
+        # Training
+        try:
+            # Permitir que el modelo ya tenga la configuración específica (learn_rate, device, etc.)
+            self.model.learn(
+                total_timesteps=total_timesteps,
+                callback=callback,
+                reset_num_timesteps=True
             )
-        
-        # Train the model
-        self.model.learn(
-            total_timesteps=total_timesteps,
-            callback=callback,
-            log_interval=log_interval,
-            tb_log_name=tb_log_name,
-            reset_num_timesteps=reset_num_timesteps
-        )
-        
-        # Get training statistics
-        training_stats = {
-            'total_timesteps': total_timesteps,
-            'final_reward': self.model.ep_info_buffer[-1]['r'] if len(self.model.ep_info_buffer) > 0 else 0,
-            'mean_reward': np.mean([ep_info['r'] for ep_info in self.model.ep_info_buffer]) if len(self.model.ep_info_buffer) > 0 else 0,
-            'episodes': len(self.model.ep_info_buffer)
-        }
-        
-        return training_stats
+            
+            self.logger.info("Training completed")
+            
+            return {
+                'total_timesteps': total_timesteps,
+                'status': 'completed'
+            }
+        except Exception as e:
+            self.logger.error(f"Error during training: {e}")
+            
+            # Relanzar excepción para manejo superior
+            raise
     
     def predict(self, observation: np.ndarray, deterministic: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -362,3 +347,44 @@ class PPOAgent:
             print(f"VecNormalize statistics loaded from {vec_normalize_path}")
         
         print(f"Model loaded from {path}")
+
+    def reset_metrics(self):
+        """
+        Resetea las métricas de seguimiento del agente.
+        Útil para reiniciar contadores antes de un nuevo entrenamiento o evaluación.
+        """
+        self.logger.info("Reseteando métricas del agente")
+        
+        # Inicializar métricas si no existen
+        if not hasattr(self, 'total_trades'):
+            self.total_trades = 0
+        else:
+            self.total_trades = 0
+        
+        if not hasattr(self, 'winning_trades'):
+            self.winning_trades = 0
+        else:
+            self.winning_trades = 0
+        
+        if not hasattr(self, 'losing_trades'):
+            self.losing_trades = 0
+        else:
+            self.losing_trades = 0
+        
+        if not hasattr(self, 'total_reward'):
+            self.total_reward = 0
+        else:
+            self.total_reward = 0
+        
+        if not hasattr(self, 'trade_history'):
+            self.trade_history = []
+        else:
+            self.trade_history = []
+        
+        # Reiniciar métricas de seguimiento si el modelo está inicializado
+        if hasattr(self, 'model') and self.model is not None:
+            # Reiniciar contadores internos del modelo si es posible
+            if hasattr(self.model, 'reset_num_timesteps'):
+                self.model.reset_num_timesteps(reset_num_timesteps=False)
+        
+        self.logger.debug("Métricas del agente reseteadas")

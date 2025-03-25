@@ -34,6 +34,7 @@ class TradeCallback(BaseCallback):
             save_interval: int = 10000,
             eval_interval: int = 5000,
             eval_env = None,
+            eval_episodes: int = 5,
             verbose: int = 1
         ):
         """
@@ -45,6 +46,7 @@ class TradeCallback(BaseCallback):
             save_interval (int, optional): Save model every this many timesteps. Defaults to 10000.
             eval_interval (int, optional): Evaluate every this many timesteps. Defaults to 5000.
             eval_env (Optional, optional): Environment for evaluation. Defaults to None.
+            eval_episodes (int, optional): Number of episodes for evaluation. Defaults to 5.
             verbose (int, optional): Verbosity level. Defaults to 1.
         """
         super(TradeCallback, self).__init__(verbose)
@@ -61,12 +63,12 @@ class TradeCallback(BaseCallback):
         
         # Evaluation environment
         self.eval_env = eval_env
+        self.eval_episodes = eval_episodes
         
         # Initialize metrics
-        self.best_return = -np.inf
+        self.best_mean_reward = -np.inf
         self.best_model_path = None
-        self.eval_results = []
-        self.eval_timesteps = []
+        self.eval_results = {'timesteps': [], 'mean_reward': [], 'std_reward': []}
         
         # Initialize logs
         self.log_file = os.path.join(log_dir, "training.log")
@@ -99,75 +101,80 @@ class TradeCallback(BaseCallback):
     
     def _evaluate_policy(self) -> None:
         """
-        Evaluate the current policy.
+        Evaluate the current policy and potentially save a new best model.
         """
-        if self.verbose > 0:
-            # Reducimos los mensajes a un formato más conciso
-            print(f"\n=== Evaluación en {self.n_calls} pasos ===")
-        
         try:
-            # Run evaluation
+            # Skip evaluation if no eval env is provided
+            if self.eval_env is None:
+                return
+
+            # Evaluate current policy
+            from stable_baselines3.common.evaluation import evaluate_policy
             mean_reward, std_reward = evaluate_policy(
                 self.model, 
                 self.eval_env, 
-                n_eval_episodes=5, 
-                deterministic=True
+                n_eval_episodes=self.eval_episodes
             )
             
-            # Store results
-            self.eval_results.append(mean_reward)
-            self.eval_timesteps.append(self.n_calls)
-            
-            # Obtener métricas detalladas de trading
-            try:
-                # Intentar extraer métricas detalladas del entorno de evaluación
-                metrics = self.eval_env.metrics.get_summary_stats() if hasattr(self.eval_env, 'metrics') else {}
+            # Obtener métricas de trading del entorno de evaluación
+            if hasattr(self.eval_env, 'get_performance_summary'):
+                # Si es un entorno envuelto, acceder al entorno original
+                if hasattr(self.eval_env, 'env'):
+                    env = self.eval_env.env
+                    while hasattr(env, 'env'):
+                        env = env.env
+                    metrics = env.get_performance_summary()
+                else:
+                    metrics = self.eval_env.get_performance_summary()
                 
-                # Obtener y mostrar las métricas más importantes en la consola con formato mejorado
+                # Extraer métricas clave para mostrar
                 total_trades = metrics.get('total_trades', 0)
-                win_rate = metrics.get('win_rate', 0)
-                profit_factor = metrics.get('profit_factor', 0)
-                avg_trade_pnl = metrics.get('avg_trade_pnl', 0)
-                max_drawdown = metrics.get('max_drawdown', 0)
+                win_rate = metrics.get('win_rate', 0.0) * 100
+                profit_factor = metrics.get('profit_factor', 0.0)
                 
+                # Mostrar solo métricas importantes si verbose > 0
                 if self.verbose > 0:
-                    print(f"Reward: {mean_reward:.2f} ± {std_reward:.2f}")
-                    print(f"Trades: {total_trades} | Win Rate: {win_rate:.1f}% | PF: {profit_factor:.2f}")
-                    print(f"Avg PnL: {avg_trade_pnl:.2f} | Max DD: {max_drawdown:.2f}%")
-                    
-                    # Si hay operaciones, mostrar distribución de dirección
-                    if total_trades > 0:
-                        long_trades_pct = metrics.get('long_trades_pct', 0)
-                        print(f"Dirección: {long_trades_pct:.1f}% Largo | {100-long_trades_pct:.1f}% Corto")
+                    print(f"Evaluación en {self.n_calls} pasos: {mean_reward:.2f} +/- {std_reward:.2f}")
+                    print(f"Métricas: Trades={total_trades}, WinRate={win_rate:.1f}%, PF={profit_factor:.2f}")
+            else:
+                # Si no hay métricas de trading disponibles
+                if self.verbose > 0:
+                    print(f"Evaluación en {self.n_calls} pasos: {mean_reward:.2f} +/- {std_reward:.2f}")
+            
+            # Log metrics to file (sin caracteres especiales para evitar problemas de codificación)
+            self._log_info(f"Timestep,Reward,Success")
+            self._log_info(f"Evaluation at {self.n_calls} timesteps: {mean_reward:.2f} +/- {std_reward:.2f}")
+            if hasattr(self.eval_env, 'get_performance_summary'):
+                self._log_info(f"Trading metrics: Trades={total_trades}, WinRate={win_rate:.1f}%, PF={profit_factor:.2f}, AvgPnL={metrics.get('average_pnl', 0.0):.2f}")
+            
+            # Save details in eval_results for tracking
+            self.eval_results['timesteps'].append(self.n_calls)
+            self.eval_results['mean_reward'].append(mean_reward)
+            self.eval_results['std_reward'].append(std_reward)
+            
+            if hasattr(self.eval_env, 'get_performance_summary'):
+                for key, value in metrics.items():
+                    if key not in self.eval_results:
+                        self.eval_results[key] = []
+                    self.eval_results[key].append(value)
+            
+            # Save model if it's the best so far
+            if mean_reward > self.best_mean_reward:
+                self.best_mean_reward = mean_reward
                 
-                # Log detallado a archivo
-                self._log_info(f"Evaluation at {self.n_calls} timesteps: {mean_reward:.2f} ± {std_reward:.2f}")
-                self._log_info(f"Trading metrics: Trades={total_trades}, WinRate={win_rate:.1f}%, PF={profit_factor:.2f}, AvgPnL={avg_trade_pnl:.2f}")
-            
-            except Exception as e:
-                # Si hay error al obtener métricas detalladas, seguimos usando el formato básico
-                if self.verbose > 0:
-                    print(f"Reward: {mean_reward:.2f} ± {std_reward:.2f}")
-                self._log_info(f"Evaluation at {self.n_calls} timesteps: {mean_reward:.2f} ± {std_reward:.2f}")
-                self._log_info(f"Error getting detailed metrics: {e}")
-            
-            # Save best model
-            if mean_reward > self.best_return:
-                self.best_return = mean_reward
+                # Save best model
                 best_model_path = os.path.join(self.save_path, "best_model")
                 self.model.save(best_model_path)
-                self.best_model_path = best_model_path
+                
+                # Informar solo de modelos nuevos importantes
                 if self.verbose > 0:
-                    print(f"✓ Nuevo mejor modelo guardado: {mean_reward:.2f}")
+                    print(f"Nuevo mejor modelo guardado con recompensa {mean_reward:.2f}")
                 self._log_info(f"New best model saved with reward {mean_reward:.2f}", True)
         
         except Exception as e:
             if self.verbose > 0:
                 print(f"Error durante evaluación: {e}")
             self._log_info(f"Error during evaluation: {e}", True)
-        
-        if self.verbose > 0:
-            print("="*40)
     
     def _save_model(self) -> None:
         """
@@ -218,24 +225,26 @@ class TradeCallback(BaseCallback):
         Save evaluation results to file.
         """
         # Save eval results if we have any
-        if self.eval_results:
+        if len(self.eval_results['timesteps']) > 0:
             results_path = os.path.join(self.log_dir, "eval_results.json")
             
-            # Prepare data
-            eval_data = {
-                "timesteps": self.eval_timesteps,
-                "results": self.eval_results,
-            }
+            # Prepare data for JSON serialization
+            eval_data = {}
+            for key, values in self.eval_results.items():
+                eval_data[key] = values if isinstance(values, list) else values.tolist()
             
             # Save to file
-            with open(results_path, "w") as f:
-                json.dump(eval_data, f, indent=4)
-            
-            # Log the save
-            self._log_info(f"Evaluation results saved to {results_path}", True)
-            
-            # Plot evaluation results
-            self._plot_evaluation_results(eval_data)
+            try:
+                with open(results_path, "w") as f:
+                    json.dump(eval_data, f, indent=4)
+                
+                # Log the save
+                self._log_info(f"Evaluation results saved to {results_path}", True)
+                
+                # Plot evaluation results
+                self._plot_evaluation_results(eval_data)
+            except Exception as e:
+                self._log_info(f"Error saving evaluation results: {e}", True)
     
     def _plot_evaluation_results(self, eval_data: Dict[str, List]) -> None:
         """
@@ -244,24 +253,27 @@ class TradeCallback(BaseCallback):
         Args:
             eval_data (Dict[str, List]): Evaluation data
         """
-        if not eval_data["timesteps"]:
+        if not eval_data.get("timesteps") or len(eval_data["timesteps"]) == 0:
             return
         
-        # Create plot
-        plt.figure(figsize=(10, 6))
-        plt.plot(eval_data["timesteps"], eval_data["results"])
-        plt.xlabel("Timesteps")
-        plt.ylabel("Mean Reward")
-        plt.title("Evaluation Results During Training")
-        plt.grid(True)
-        
-        # Save plot
-        plot_path = os.path.join(self.log_dir, "eval_results.png")
-        plt.savefig(plot_path)
-        plt.close()
-        
-        # Log the save
-        self._log_info(f"Evaluation plot saved to {plot_path}", True)
+        try:
+            # Create plot
+            plt.figure(figsize=(10, 6))
+            plt.plot(eval_data["timesteps"], eval_data["mean_reward"])
+            plt.xlabel("Timesteps")
+            plt.ylabel("Mean Reward")
+            plt.title("Evaluation Results During Training")
+            plt.grid(True)
+            
+            # Save plot
+            plot_path = os.path.join(self.log_dir, "eval_results.png")
+            plt.savefig(plot_path)
+            plt.close()
+            
+            # Log the save
+            self._log_info(f"Evaluation plot saved to {plot_path}", True)
+        except Exception as e:
+            self._log_info(f"Error plotting evaluation results: {e}", True)
 
 
 class ProgressiveRewardCallback(TradeCallback):

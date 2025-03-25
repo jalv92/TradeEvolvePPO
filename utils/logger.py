@@ -84,6 +84,28 @@ def setup_logger(name: str,
     return logger
 
 
+def configure_logging(log_dir: str, 
+                     app_name: str = "tradevolve", 
+                     level: str = "INFO") -> logging.Logger:
+    """
+    Configure logging for the application.
+    
+    Args:
+        log_dir (str): Directory to store log files
+        app_name (str, optional): Application name. Defaults to "tradevolve".
+        level (str, optional): Logging level. Defaults to "INFO".
+        
+    Returns:
+        logging.Logger: Configured logger
+    """
+    # Create log directory if it doesn't exist
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Setup main logger
+    log_file = os.path.join(log_dir, f"{app_name}.log")
+    return setup_logger(app_name, log_file, level, console_level="INFO")
+
+
 class TradeLogger:
     """
     Logger class for trading operations.

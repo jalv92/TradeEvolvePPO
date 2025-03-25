@@ -5,17 +5,37 @@ Implements the training pipeline for PPO agents.
 
 import os
 import time
+import sys
+import glob
+import json
 import numpy as np
+import torch
 import pandas as pd
+import traceback
+from tqdm import tqdm
+from typing import Dict, Any, Optional, Union, List, Tuple
+from datetime import datetime
 import gymnasium as gym
-from typing import Dict, Any, Optional, List, Tuple
+from stable_baselines3.common.callbacks import BaseCallback
+from agents.ppo_agent import PPOAgent
+import logging
+from utils.logger import setup_logger, configure_logging
+from evaluation.metrics import calculate_metrics
+from environment.trading_env import TradingEnv
+from utils.helpers import save_model, load_model
+import matplotlib.pyplot as plt
+import gc
+import csv
+import shutil
+import psutil
+import collections
 
 from data.data_loader import DataLoader
-from environment.trading_env import TradingEnv
-from agents.ppo_agent import PPOAgent
 from training.callback import TradeCallback
 from evaluation.backtest import Backtester
-from utils.logger import setup_logger
+from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3 import PPO
 
 
 class Trainer:
@@ -132,56 +152,162 @@ class Trainer:
         
         self.logger.info("Setup complete")
     
-    def train(self) -> Dict[str, Any]:
+    def train(self, show_progress=True) -> Dict[str, Any]:
         """
-        Train the agent.
+        Train the model.
+        
+        Args:
+            show_progress (bool): Whether to show progress updates during training
         
         Returns:
-            Dict[str, Any]: Training statistics
+            Dict[str, Any]: Training results
         """
-        if self.agent is None or self.train_env is None:
-            self.logger.error("Agent or environment not initialized. Call setup() first.")
-            raise ValueError("Agent or environment not initialized. Call setup() first.")
-        
-        self.logger.info("Starting training")
-        start_time = time.time()
-        
-        # Create custom callback
-        save_path = self.training_config.get('save_path', './models/')
-        os.makedirs(save_path, exist_ok=True)
-        
-        callback = TradeCallback(
-            log_dir=self.log_path,
-            save_path=save_path,
-            save_interval=self.training_config.get('save_interval', 10000),
-            eval_interval=self.training_config.get('eval_interval', 5000),
-            eval_env=self.val_env,
-            verbose=1
-        )
-        
-        # Train the agent
         try:
-            self.train_stats = self.agent.train(callback=callback)
+            self.logger.info("Iniciando entrenamiento")
+            start_time = time.time()
             
-            # Calculate training time
-            training_time = time.time() - start_time
-            self.train_stats['training_time'] = training_time
+            # Resetear métricas y contadores si el método existe
+            try:
+                if hasattr(self.agent, 'reset_metrics') and callable(getattr(self.agent, 'reset_metrics')):
+                    self.agent.reset_metrics()
+            except Exception as e:
+                self.logger.warning(f"No se pudieron resetear las métricas: {e}")
+                # Continuar con el entrenamiento de todos modos
             
-            self.logger.info(f"Training completed in {training_time:.2f} seconds")
-            self.logger.info(f"Training statistics: {self.train_stats}")
-        except Exception as e:
-            self.logger.error(f"Error during training: {e}")
-            raise
+            # Preparar callbacks
+            callbacks = self.create_callback()
+            
+            # Añadir callback para monitorear distribución de acciones
+            action_distribution_cb = ActionDistributionCallback(verbose=1)
+            callbacks.append(action_distribution_cb)
+            
+            # Training parameters
+            total_timesteps = self.training_config.get('total_timesteps', 2000000)
+            
+            # Crear barra de progreso con tqdm
+            with tqdm(total=total_timesteps, desc="Entrenando") as pbar:
+                # Crear callback para actualizar la barra de progreso
+                class TqdmCallback(BaseCallback):
+                    def __init__(self, pbar, eval_env, eval_freq=10000, n_eval_episodes=3, verbose=0):
+                        super(TqdmCallback, self).__init__(verbose)
+                        self.pbar = pbar
+                        self.eval_env = eval_env
+                        self.eval_freq = eval_freq
+                        self.n_eval_episodes = n_eval_episodes
+                        self.last_timestep = 0
+                        self.best_metrics = {
+                            'mean_reward': float('-inf'),
+                            'win_rate': 0.0,
+                            'profit_factor': 0.0,
+                            'total_trades': 0
+                        }
+                        
+                    def _init_callback(self):
+                        self.last_timestep = 0
+                    
+                    def _on_step(self):
+                        # Actualizar barra de progreso
+                        step_diff = self.model.num_timesteps - self.last_timestep
+                        self.pbar.update(step_diff)
+                        self.last_timestep = self.model.num_timesteps
+                        
+                        # Mostrar métricas en la barra de progreso cada N pasos
+                        if self.model.num_timesteps % self.eval_freq == 0:
+                            try:
+                                # Evaluar modelo
+                                mean_reward, std_reward = evaluate_policy(
+                                    self.model, 
+                                    self.eval_env, 
+                                    n_eval_episodes=self.n_eval_episodes
+                                )
+                                
+                                # Obtener métricas de trading si disponibles
+                                metrics = {}
+                                if hasattr(self.eval_env, 'get_performance_summary'):
+                                    metrics = self.eval_env.get_performance_summary()
+                                
+                                # Extraer métricas importantes
+                                win_rate = metrics.get('win_rate', 0.0) * 100
+                                profit_factor = metrics.get('profit_factor', 0.0)
+                                total_trades = metrics.get('total_trades', 0)
+                                
+                                # Actualizar mejores métricas
+                                if mean_reward > self.best_metrics['mean_reward']:
+                                    self.best_metrics['mean_reward'] = mean_reward
+                                if win_rate > self.best_metrics['win_rate']:
+                                    self.best_metrics['win_rate'] = win_rate
+                                if profit_factor > self.best_metrics['profit_factor']:
+                                    self.best_metrics['profit_factor'] = profit_factor
+                                if total_trades > self.best_metrics['total_trades']:
+                                    self.best_metrics['total_trades'] = total_trades
+                                
+                                # Actualizar descripción de la barra de progreso
+                                self.pbar.set_description(
+                                    f"R:{mean_reward:.0f} | T:{total_trades} | WR:{win_rate:.1f}% | PF:{profit_factor:.2f}"
+                                )
+                                
+                                # Cada 100k pasos, mostrar las mejores métricas hasta ahora
+                                if self.model.num_timesteps % 100000 == 0:
+                                    print(f"\nMejores métricas ({self.model.num_timesteps} pasos):")
+                                    print(f"  Recompensa: {self.best_metrics['mean_reward']:.1f}")
+                                    print(f"  Win Rate: {self.best_metrics['win_rate']:.1f}%")
+                                    print(f"  Profit Factor: {self.best_metrics['profit_factor']:.2f}")
+                                    print(f"  Total Trades: {self.best_metrics['total_trades']}")
+                            
+                            except Exception as e:
+                                if self.verbose > 0:
+                                    print(f"Error en evaluación: {e}")
+                        
+                        return True
+                
+                # Añadir el callback de tqdm a la lista
+                tqdm_callback = TqdmCallback(
+                    pbar=pbar, 
+                    eval_env=self.val_env,
+                    eval_freq=self.training_config.get('eval_freq', 20000),
+                    n_eval_episodes=self.training_config.get('n_eval_episodes', 3),
+                    verbose=1
+                )
+                callbacks.append(tqdm_callback)
+                
+                # Iniciar entrenamiento
+                self.agent.model.learn(
+                    total_timesteps=total_timesteps,
+                    callback=callbacks
+                )
+            
+            # Guardar modelo entrenado
+            if self.training_config.get('save_path', None):
+                model_path = os.path.join(self.training_config['save_path'], "final_model")
+                self.agent.save(model_path)
+                self.logger.info(f"Modelo guardado en {model_path}")
+            
+            # Calcular estadísticas finales de entrenamiento
+            elapsed_time = time.time() - start_time
+            steps_per_second = total_timesteps / elapsed_time if elapsed_time > 0 else 0
+            
+            self.logger.info(f"Entrenamiento completado en {elapsed_time:.2f} segundos")
+            self.logger.info(f"Velocidad promedio: {steps_per_second:.1f} pasos/segundo")
+            
+            # Mostrar distribución final de acciones
+            action_distribution_cb._report_action_distribution()
+            
+            return True
         
-        # Save the final model
-        try:
-            final_model_path = os.path.join(save_path, 'final_model.zip')
-            self.agent.save(final_model_path)
-            self.logger.info(f"Final model saved to {final_model_path}")
         except Exception as e:
-            self.logger.error(f"Error saving final model: {e}")
-        
-        return self.train_stats
+            self.logger.error(f"Error durante el entrenamiento: {e}")
+            self.logger.error(traceback.format_exc())
+            
+            # Intentar guardar el modelo incluso si hubo un error
+            if self.training_config.get('save_path', None) and hasattr(self, 'agent') and self.agent.model is not None:
+                model_path = os.path.join(self.training_config['save_path'], "error_recovery_model")
+                try:
+                    self.agent.save(model_path)
+                    self.logger.info(f"Modelo de recuperación guardado en {model_path}")
+                except Exception as save_error:
+                    self.logger.error(f"No se pudo guardar el modelo de recuperación: {save_error}")
+            
+            return False
     
     def evaluate(self, model_path: Optional[str] = None, env: Optional[gym.Env] = None) -> Dict[str, Any]:
         """
@@ -453,3 +579,102 @@ class Trainer:
             self.logger.info(f"Training results saved to {path}")
         except Exception as e:
             self.logger.error(f"Error saving training results: {e}")
+
+    def create_callback(self) -> TradeCallback:
+        """
+        Create and return a custom callback for training.
+        
+        Returns:
+            TradeCallback: Configured callback for training monitoring
+        """
+        # Crear directorios si no existen
+        save_path = self.training_config.get('save_path', './models/')
+        os.makedirs(save_path, exist_ok=True)
+        
+        # Configurar parámetros del callback
+        save_interval = self.training_config.get('save_interval', 10000)
+        eval_interval = self.training_config.get('eval_interval', 5000)
+        
+        # Crear y devolver el callback con verbosidad reducida
+        callback = TradeCallback(
+            log_dir=self.log_path,
+            save_path=save_path,
+            save_interval=save_interval,
+            eval_interval=eval_interval,
+            eval_env=self.val_env,
+            eval_episodes=self.training_config.get('n_eval_episodes', 5),
+            verbose=0  # Configurar a 0 para mínima verbosidad
+        )
+        
+        return callback
+
+class ActionDistributionCallback(BaseCallback):
+    """
+    Monitorea la distribución de acciones tomadas por el agente durante el entrenamiento.
+    """
+    
+    def __init__(self, verbose=0):
+        super(ActionDistributionCallback, self).__init__(verbose)
+        # Contadores para cada tipo de acción
+        self.action_counts = {'long': 0, 'short': 0, 'close': 0}
+        # Valores medios de cada acción
+        self.action_values = {'long': [], 'short': [], 'close': []}
+        # Total de acciones
+        self.total_actions = 0
+        # Últimas acciones para análisis
+        self.last_actions = collections.deque(maxlen=100)
+    
+    def _on_step(self) -> bool:
+        """Procesa la última acción tomada por el modelo"""
+        # Obtener la última acción tomada
+        if self.locals.get('actions') is not None:
+            action = self.locals['actions'][0]  # Tomamos la primera acción (en caso de múltiples entornos)
+            
+            # Imprimir el tipo y valor de la acción para debugging
+            print(f"Action type: {type(action)}, value: {action}")
+            
+            # Categorizar la acción
+            if action == 0:  # Mantener
+                action_category = 'close'
+            elif action == 1:  # Comprar/Long
+                action_category = 'long'
+            elif action == 2:  # Vender/Short
+                action_category = 'short'
+            else:
+                print(f"Acción no reconocida: {action} de tipo {type(action)}")
+                return True  # Si la acción no está en el rango esperado, ignoramos
+            
+            # Actualizar contadores
+            self.action_counts[action_category] += 1
+            self.total_actions += 1
+            self.last_actions.append(action_category)
+            
+            # Reportar distribución cada 1000 pasos
+            if self.n_calls % 1000 == 0 and self.verbose > 0:
+                self._report_action_distribution()
+        
+        return True
+    
+    def _report_action_distribution(self):
+        """Imprime la distribución de acciones tomadas"""
+        if self.total_actions == 0:
+            return
+        
+        print("\n===== Distribución de Acciones =====")
+        for action_type, count in self.action_counts.items():
+            percentage = (count / self.total_actions) * 100
+            print(f"{action_type}: {count} ({percentage:.2f}%)")
+        
+        # Análisis de sesgo en últimas acciones
+        last_actions_count = collections.Counter(self.last_actions)
+        print("\n===== Últimas 100 Acciones =====")
+        for action_type, count in last_actions_count.items():
+            percentage = (count / len(self.last_actions)) * 100
+            print(f"{action_type}: {count} ({percentage:.2f}%)")
+        
+        # Detección de sesgo extremo
+        max_action = max(last_actions_count.items(), key=lambda x: x[1], default=(None, 0))
+        if max_action[1] > 80:  # Si más del 80% son del mismo tipo
+            print(f"\n⚠️ ALERTA: Posible sesgo extremo hacia {max_action[0]} ({max_action[1]}%)")
+        
+        print("=====================================\n")

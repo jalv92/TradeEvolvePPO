@@ -268,21 +268,43 @@ class NT8Client:
             bar_data (Dict[str, Any]): Datos de la nueva barra
         """
         try:
+            # Verificar los datos antes de procesar
+            required_fields = ["timestamp", "open", "high", "low", "close", "volume", "instrument"]
+            for field in required_fields:
+                if field not in bar_data:
+                    logger.error(f"Error: campo '{field}' faltante en bar_data: {bar_data}")
+                    return
+            
+            # Asegurar que timestamp es un objeto datetime
+            if not isinstance(bar_data["timestamp"], datetime):
+                try:
+                    if isinstance(bar_data["timestamp"], str):
+                        bar_data["timestamp"] = datetime.strptime(bar_data["timestamp"], "%Y-%m-%d %H:%M:%S")
+                    else:
+                        logger.error(f"Tipo de timestamp no soportado: {type(bar_data['timestamp'])}")
+                        return
+                except Exception as e:
+                    logger.error(f"Error al convertir timestamp: {e}")
+                    return
+            
             # Convertir a DataFrame
-            df_row = pd.DataFrame([{
-                "timestamp": bar_data["timestamp"],
-                "open": bar_data["open"],
-                "high": bar_data["high"],
-                "low": bar_data["low"],
-                "close": bar_data["close"],
-                "volume": bar_data["volume"],
-                "instrument": bar_data["instrument"]
-            }])
+            new_row = {
+                "timestamp": [bar_data["timestamp"]],
+                "open": [float(bar_data["open"])],
+                "high": [float(bar_data["high"])],
+                "low": [float(bar_data["low"])],
+                "close": [float(bar_data["close"])],
+                "volume": [float(bar_data["volume"])],
+                "instrument": [bar_data["instrument"]]
+            }
+            
+            df_row = pd.DataFrame(new_row)
             
             # Añadir a historial
             with self.lock:
                 if self.bar_history.empty:
                     self.bar_history = df_row
+                    logger.debug(f"Iniciado historial de barras con primera barra: {bar_data['instrument']} - {bar_data['timestamp']}")
                 else:
                     # Verificar si ya existe esta barra (mismo timestamp e instrumento)
                     mask = (self.bar_history["timestamp"] == bar_data["timestamp"]) & \
@@ -290,17 +312,31 @@ class NT8Client:
                     
                     if mask.any():
                         # Actualizar la barra existente
-                        self.bar_history.loc[mask] = df_row.iloc[0]
+                        idx = mask.idxmax()
+                        for col in df_row.columns:
+                            self.bar_history.loc[idx, col] = df_row.iloc[0][col]
+                        logger.debug(f"Actualizada barra existente: {bar_data['instrument']} - {bar_data['timestamp']}")
                     else:
-                        # Agregar nueva barra
+                        # Agregar nueva barra - usando merge de dict para evitar errores de longitud desigual
                         self.bar_history = pd.concat([self.bar_history, df_row], ignore_index=True)
+                        logger.debug(f"Añadida nueva barra: {bar_data['instrument']} - {bar_data['timestamp']}")
                 
                 # Limitar el tamaño del historial
                 if len(self.bar_history) > self.max_history_size:
                     self.bar_history = self.bar_history.iloc[-self.max_history_size:]
+                    logger.debug(f"Limitado historial a {self.max_history_size} barras")
+                
+                # Asegurar que todas las columnas tienen el tipo correcto
+                self.bar_history["timestamp"] = pd.to_datetime(self.bar_history["timestamp"])
+                for col in ["open", "high", "low", "close", "volume"]:
+                    self.bar_history[col] = self.bar_history[col].astype(float)
+                self.bar_history["instrument"] = self.bar_history["instrument"].astype(str)
         
         except Exception as e:
+            import traceback
             logger.error(f"Error al actualizar historial de barras: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Datos que causaron el error: {bar_data}")
     
     def get_bar_history(self, instrument: Optional[str] = None, n_bars: Optional[int] = None) -> pd.DataFrame:
         """
