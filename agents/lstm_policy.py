@@ -16,6 +16,7 @@ class LSTMPolicy(ActorCriticPolicy):
     """
     Política Actor-Crítica puramente LSTM para agentes PPO.
     Reemplaza completamente la arquitectura MLP con LSTM para procesamiento de series temporales.
+    Con regularización mejorada para prevenir sobreajuste.
     """
     
     def __init__(
@@ -23,12 +24,14 @@ class LSTMPolicy(ActorCriticPolicy):
         observation_space: gym.spaces.Space,
         action_space: gym.spaces.Space,
         lr_schedule: callable,
-        lstm_hidden_size: int = 256,
+        lstm_hidden_size: int = 256,  # Reducido de 512 a 256 para evitar sobreajuste
         num_lstm_layers: int = 2,
         lstm_bidirectional: bool = False,
+        dropout: float = 0.2,  # NUEVO: Dropout para regularización
+        weight_decay: float = 1e-5,  # NUEVO: Regularización L2
         activation_fn: Type[nn.Module] = nn.Tanh,
         use_sde: bool = False,
-        log_std_init: float = -0.5,  # Nuevo parámetro para inicialización de log_std
+        log_std_init: float = -0.5,
         *args,
         **kwargs
     ):
@@ -40,16 +43,42 @@ class LSTMPolicy(ActorCriticPolicy):
         self._observation_shape = observation_space.shape
         self._log_std_init = log_std_init
         
-        # Extraer dimensiones del espacio de observación
-        self._seq_len = self._observation_shape[0]  # window_size (ej: 60)
-        self._input_features = self._observation_shape[1]  # num_features+4 (ej: 25)
+        # MODIFICADO: Manejar tanto espacios de observación 1D como 2D
+        if len(self._observation_shape) == 1:
+            # Si es un vector 1D, necesitamos inferir seq_len y features
+            # Calculamos input_features dividiendo el tamaño total por seq_len
+            self._seq_len = 60  # Mantenemos window_size=60 como valor por defecto
+            self._input_features = self._observation_shape[0] // self._seq_len
+            
+            # Si hay un resto, incrementamos input_features para asegurarnos de que cubre toda la entrada
+            if self._observation_shape[0] % self._seq_len != 0:
+                self._input_features += 1
+                
+            print(f"Observación 1D detectada con forma {self._observation_shape}")
+            print(f"Calculado automáticamente: seq_len={self._seq_len}, input_features={self._input_features}")
+        elif len(self._observation_shape) == 2:
+            # Extracción estándar para formato 2D
+            self._seq_len = self._observation_shape[0]  # window_size (ej: 60)
+            self._input_features = self._observation_shape[1]  # num_features+4 (ej: 25)
+            print(f"Observación 2D detectada con forma {self._observation_shape}")
+            print(f"Using seq_len={self._seq_len}, input_features={self._input_features}")
+        else:
+            # Caso de error, utilizar valores por defecto
+            self._seq_len = 60
+            self._input_features = 10  # Aumentamos el valor por defecto para manejar vectores más grandes
+            print(f"ADVERTENCIA: Forma de observación no reconocida: {self._observation_shape}")
+            print(f"Usando valores por defecto: seq_len={self._seq_len}, input_features={self._input_features}")
         
-        # Contador para reducir logs - aumentado para reducir frecuencia
+        # Contador para reducir logs - reducir drásticamente para mejorar rendimiento
         self._log_counter = 0
-        self._log_frequency = 500  # Solo mostrar logs cada 500 llamadas (antes era 100)
+        self._log_frequency = 5000  # Solo mostrar logs cada 5000 llamadas (antes eran 500)
         
-        print(f"Observation space shape: {self._observation_shape}")
-        print(f"Using seq_len={self._seq_len}, input_features={self._input_features}")
+        # Control para ajuste dinámico del LSTM
+        self._adjusted_lstm = False
+        
+        # MODIFICADO: Eliminar net_arch de kwargs si existe para evitar duplicación
+        if 'net_arch' in kwargs:
+            del kwargs['net_arch']
         
         # Inicializar la política base con arquitectura vacía
         # Estamos siendo explícitos en los parámetros para evitar problemas
@@ -68,19 +97,45 @@ class LSTMPolicy(ActorCriticPolicy):
         # Calcular tamaño de salida del LSTM
         lstm_output_size = self._lstm_hidden_size * self._lstm_directions
         
-        # Crear red LSTM
+        # Guardar parámetros de regularización
+        self.dropout_rate = dropout
+        self.weight_decay = weight_decay
+        
+        # Crear red LSTM con dropout
         self.lstm = nn.LSTM(
             input_size=self._input_features,
             hidden_size=self._lstm_hidden_size,
             num_layers=self._num_lstm_layers,
             batch_first=True,
-            bidirectional=self._lstm_bidirectional
+            bidirectional=self._lstm_bidirectional,
+            dropout=dropout if self._num_lstm_layers > 1 else 0  # Aplicar dropout entre capas LSTM
         )
         
-        # Definir las redes de política y valor directamente
-        # (ignorando el MLP extractor predeterminado)
-        self.custom_policy_net = nn.Linear(lstm_output_size, action_space.shape[0])
-        self.custom_value_net = nn.Linear(lstm_output_size, 1)
+        # Capa de dropout adicional después de LSTM
+        self.dropout = nn.Dropout(dropout)
+        
+        # Definir las redes de política y valor con regularización
+        self.custom_policy_net = nn.Sequential(
+            nn.Linear(lstm_output_size, 128),  # Capa intermedia más pequeña
+            activation_fn(),
+            nn.Dropout(dropout),
+            nn.Linear(128, action_space.shape[0])
+        )
+        
+        self.custom_value_net = nn.Sequential(
+            nn.Linear(lstm_output_size, 128),  # Capa intermedia más pequeña
+            activation_fn(),
+            nn.Dropout(dropout),
+            nn.Linear(128, 1)
+        )
+        
+        # Aplicar inicialización de pesos con regularización
+        for module in [self.custom_policy_net, self.custom_value_net]:
+            for layer in module:
+                if isinstance(layer, nn.Linear):
+                    # Inicialización Xavier para evitar la vanishing/exploding gradient
+                    nn.init.xavier_uniform_(layer.weight)
+                    nn.init.zeros_(layer.bias)
         
         # Inicialización adaptativa de log_std según el espacio de acción
         # Esto permite mejor exploración inicial adaptada al rango de acciones
@@ -133,36 +188,112 @@ class LSTMPolicy(ActorCriticPolicy):
     
     def _preprocess_lstm(self, obs: torch.Tensor) -> torch.Tensor:
         """
-        Preprocesa las observaciones para el LSTM.
+        Preprocesa las observaciones para el LSTM de manera optimizada para GPU.
         
         Args:
-            obs: Tensor de observaciones (batch_size, seq_len*features) o (batch_size, seq_len, features)
+            obs: Tensor de observaciones (batch_size, *obs_shape)
             
         Returns:
             Tensor: Características procesadas por el LSTM
         """
-        # Print para depuración solo cada N llamadas (reducido para mejorar rendimiento)
+        # Minimizar logs para mejorar rendimiento
         self._log_counter += 1
         should_log = self._log_counter % self._log_frequency == 0
         
+        # Verificar tipos para evitar transferencias CPU-GPU innecesarias
+        if obs.dtype != torch.float32:
+            # Convertir a float32 directamente para evitar problemas de tipos
+            obs = obs.to(dtype=torch.float32)
+            
         if should_log:
-            print(f"LSTM input shape: {obs.shape}")
+            print(f"LSTM batch size: {obs.shape[0]}, obs shape: {obs.shape}, device: {obs.device}")
         
-        # En stable_baselines3, las observaciones vienen como (batch_size, *obs_shape)
         batch_size = obs.shape[0]
         
-        # Reshape si es necesario
-        if len(obs.shape) == 3:
-            # Ya está en formato (batch_size, seq_len, features)
+        # Manejar correctamente las dimensiones de entrada
+        # En entornos de trading, generalmente tenemos un vector plano que necesitamos reshape
+        if len(obs.shape) == 2:  # Formato (batch_size, features)
+            # Este es el caso habitual con stable_baselines3 - un vector plano
+            if should_log:
+                print(f"Vector plano detectado de tamaño {obs.shape}")
+                
+            # Aquí necesitamos una solución importante: la entrada LSTM se ajustará al 
+            # tamaño actual del vector en lugar de intentar forzar un reshape específico
+            
+            # Crear mini-secuencias para procesado LSTM
+            # Vamos a dividir el vector en bloques de input_features
+            total_features = obs.shape[1]
+            
+            # Determinar el número de características por paso temporal
+            # Calculamos cuántos timesteps podemos obtener del total de características
+            n_timesteps = min(self._seq_len, total_features)
+            
+            # Características por paso temporal
+            features_per_timestep = total_features // n_timesteps
+            
+            if should_log:
+                print(f"Creando secuencia: {n_timesteps} pasos con {features_per_timestep} características por paso")
+            
+            # Ajustar la red LSTM para trabajar con estas dimensiones
+            # Solo hacemos esto la primera vez que se llama
+            if not hasattr(self, '_adjusted_lstm') or not self._adjusted_lstm:
+                self._input_features = features_per_timestep
+                # Recrear el LSTM con las dimensiones correctas
+                self.lstm = nn.LSTM(
+                    input_size=features_per_timestep,
+                    hidden_size=self._lstm_hidden_size,
+                    num_layers=self._num_lstm_layers,
+                    batch_first=True,
+                    bidirectional=self._lstm_bidirectional,
+                    dropout=self.dropout_rate if self._num_lstm_layers > 1 else 0
+                )
+                
+                # Mover el LSTM al mismo dispositivo que los tensores de entrada
+                self.lstm = self.lstm.to(obs.device)
+                
+                self._adjusted_lstm = True
+                if should_log:
+                    print(f"LSTM ajustado para trabajar con input_size={features_per_timestep} en dispositivo {obs.device}")
+            
+            # Reshape de la entrada para que sea (batch, timesteps, features)
+            # Si el tamaño no divide exactamente, recortamos las características extras al final
+            usable_features = n_timesteps * features_per_timestep
+            if usable_features < total_features:
+                if should_log:
+                    print(f"Recortando entrada: usando {usable_features}/{total_features} características")
+                obs = obs[:, :usable_features]
+            
+            # Reshape a formato (batch, timesteps, features)
+            x = obs.reshape(batch_size, n_timesteps, features_per_timestep)
+            
+        elif len(obs.shape) == 3:  # Formato (batch_size, seq_len, features)
+            # Ya está en el formato correcto para LSTM
             x = obs
+            
+            # Asegurarnos de que la red LSTM tenga las dimensiones correctas
+            if not hasattr(self, '_adjusted_lstm') or not self._adjusted_lstm:
+                self._input_features = obs.shape[2]
+                # Recrear el LSTM con las dimensiones correctas
+                self.lstm = nn.LSTM(
+                    input_size=obs.shape[2],
+                    hidden_size=self._lstm_hidden_size,
+                    num_layers=self._num_lstm_layers,
+                    batch_first=True,
+                    bidirectional=self._lstm_bidirectional,
+                    dropout=self.dropout_rate if self._num_lstm_layers > 1 else 0
+                )
+                
+                # Mover el LSTM al mismo dispositivo que los tensores de entrada
+                self.lstm = self.lstm.to(obs.device)
+                
+                self._adjusted_lstm = True
+                if should_log:
+                    print(f"LSTM ajustado para trabajar con input_size={obs.shape[2]} en dispositivo {obs.device}")
         else:
-            # Si está en formato (batch_size, seq_len*features) - lo más probable
-            x = obs.reshape(batch_size, self._seq_len, self._input_features)
+            # Caso de error: dimensiones inesperadas
+            raise ValueError(f"Formato de observación no soportado: {obs.shape}")
         
-        if should_log:
-            print(f"Reshaped tensor for LSTM: {x.shape}")
-        
-        # Procesar con LSTM
+        # Procesar con LSTM - manejar todo el batch a la vez
         lstm_out, _ = self.lstm(x)
         
         # Usar solo la salida del último paso temporal
@@ -220,7 +351,7 @@ class LSTMPolicy(ActorCriticPolicy):
     
     def predict_values(self, obs: torch.Tensor) -> torch.Tensor:
         """
-        Predecir valores a partir de observaciones.
+        Predecir valores para observaciones dadas.
         
         Args:
             obs: Tensor de observaciones
@@ -229,4 +360,4 @@ class LSTMPolicy(ActorCriticPolicy):
             torch.Tensor: Valores predichos
         """
         features = self._preprocess_lstm(obs)
-        return self.custom_value_net(features) 
+        return self.custom_value_net(features).flatten()

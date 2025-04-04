@@ -637,6 +637,107 @@ class TradingMetrics:
             )
         
         return df
+        
+    def update(self, balance: float = None, position: int = None, 
+               entry_price: float = None, current_price: float = None,
+               unrealized_pnl: float = None, trades: list = None) -> None:
+        """
+        Actualiza métricas basadas en el estado actual del entorno.
+        Este método es llamado por el entorno en cada paso para actualizar
+        las métricas de rendimiento.
+        
+        Args:
+            balance (float, optional): Balance actual
+            position (int, optional): Posición actual (positivo=largo, negativo=corto)
+            entry_price (float, optional): Precio de entrada de la posición actual
+            current_price (float, optional): Precio actual
+            unrealized_pnl (float, optional): PnL no realizado de la posición actual
+            trades (list, optional): Lista de operaciones realizadas
+        """
+        # Actualizar equity curve si tenemos balance
+        if balance is not None:
+            equity = balance
+            if unrealized_pnl is not None:
+                equity += unrealized_pnl
+            
+            # Si es el primer paso o el equity ha cambiado, actualizar
+            if not self.equity_curve or equity != self.equity_curve[-1]:
+                self.equity_curve.append(equity)
+                
+                # Calcular retorno
+                if len(self.equity_curve) > 1:
+                    returns = self.equity_curve[-1] / self.equity_curve[-2] - 1
+                    self.returns.append(returns)
+                
+                # Calcular drawdown
+                peak = max(self.equity_curve)
+                current = self.equity_curve[-1]
+                drawdown = (peak - current) / peak if peak > 0 else 0
+                self.drawdowns.append(drawdown)
+        
+        # Actualizar exposición a mercado
+        if position is not None:
+            self.market_exposure.append(1 if position != 0 else 0)
+        
+        # Actualizar trades si hay nuevos
+        if trades is not None and len(trades) > len(self.trades):
+            # Procesar nuevos trades
+            for i in range(len(self.trades), len(trades)):
+                trade = trades[i]
+                
+                # Solo procesar trades completos (con exit_price)
+                if 'exit_price' in trade and 'entry_price' in trade:
+                    # Calcular y actualizar métricas de trade
+                    pnl = trade.get('pnl', 0.0)
+                    pnl_pct = pnl / self.initial_balance * 100
+                    
+                    # Duración de la posición
+                    if 'entry_time' in trade and 'exit_time' in trade:
+                        duration = trade['exit_time'] - trade['entry_time']
+                        self.position_durations.append(duration)
+                    
+                    # Tamaño de la operación
+                    self.trade_sizes.append(abs(pnl))
+                    self.trade_sizes_pct.append(abs(pnl_pct))
+                    
+                    # Clasificar tamaño de operación
+                    if abs(pnl) < 10.0:  # Operación trivial/pequeña
+                        self.small_trades_count += 1
+                    else:
+                        self.normal_trades_count += 1
+                    
+                    # Actualizar sesgo direccional
+                    position = trade.get('position', 0)
+                    self.direction_bias += (1 if position > 0 else -1)
+                    
+                    # Gestión de riesgo
+                    if 'stop_loss' in trade and 'take_profit' in trade:
+                        entry_price = trade.get('entry_price', 0)
+                        sl_price = trade.get('stop_loss', 0)
+                        tp_price = trade.get('take_profit', 0)
+                        
+                        # Calcular distancias en ticks (asumiendo 0.25 por tick en NQ)
+                        tick_size = 0.25  # Para NQ
+                        sl_distance = abs(entry_price - sl_price) / tick_size
+                        tp_distance = abs(entry_price - tp_price) / tick_size
+                        
+                        self.sl_distances.append(sl_distance)
+                        self.tp_distances.append(tp_distance)
+                        
+                        # Calcular ratio R:R
+                        if sl_distance > 0:
+                            rr_ratio = tp_distance / sl_distance
+                            self.rr_ratios.append(rr_ratio)
+                        
+                        # Ratio R:R realizado
+                        exit_price = trade.get('exit_price', 0)
+                        actual_move = abs(exit_price - entry_price) / tick_size
+                        if sl_distance > 0:
+                            realized_rr = actual_move / sl_distance if pnl > 0 else -actual_move / sl_distance
+                            self.realized_rr_ratios.append(realized_rr)
+            
+            # Actualizar lista completa de trades
+            self.trades = trades.copy()
 
 
 def calculate_trade_metrics(trade_history: List[Dict], initial_balance: float = 50000.0) -> Dict[str, Any]:

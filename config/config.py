@@ -7,7 +7,7 @@ import torch
 
 # Configuración base
 BASE_CONFIG = {
-    'symbol': 'NQ',
+    'symbol': 'NQ_06-25_combined_20250320_225417',
     'timeframe': '5min',
     'start_date': '2022-01-01',
     'end_date': '2022-12-31',
@@ -43,159 +43,192 @@ DATA_CONFIG = {
     'price_precision': 2
 }
 
-# Configuración del entorno
+# Configuración del entorno - AJUSTES MÁS ESTRICTOS ANTI-HIPERTRADING
 ENV_CONFIG = {
     # Parámetros generales
-    'initial_balance': 50000.0,  # Saldo inicial en USD
-    'commission_rate': 0.0001,   # Comisión por operación (0.01%)
-    'contract_size': 1,          # Tamaño del contrato (siempre 1 para simplificar)
-    'max_position': 1,           # Posición máxima (long: +1, short: -1)
-    'episode_length': 1000,      # Duración máxima del episodio
-    'reward_scaling': 1.5,       # Factor de escala para la recompensa
-    
+    'initial_balance': 50000.0,
+    'commission_rate': 0.0001,
+    'contract_size': 1,
+    'max_position': 1,
+    'episode_length': 1000,
+    'reward_scaling': 1.5,
+
     # Gestión de riesgo
-    'max_loss_pct': 0.05,        # Pérdida máxima permitida (% del balance)
-    'max_drawdown_pct': 0.10,    # Drawdown máximo permitido (% del balance)
-    'risk_per_trade_pct': 0.005, # Riesgo por operación (% del balance) (reducido de 0.01)
-    
+    'max_loss_pct': 0.05,
+    'max_drawdown_pct': 0.10,
+    'risk_per_trade_pct': 0.005,
+
     # Nuevos parámetros para el sistema de recompensas
-    'pnl_scale': 5.0,            # Escala para la recompensa de PnL (reducido de 10.0)
-    'position_hold_threshold': 50, # Umbral de pasos para penalizar posiciones mantenidas demasiado tiempo
-    'stop_loss_pct': 0.01,       # Porcentaje de stop loss (reducido de 0.02)
-    'take_profit_ratio': 2.0,    # Ratio take profit en relación al stop loss (aumentado de 1.5)
-    'atr_base': 20.0,            # Valor base para normalizar ATR
-    'initial_exploration_steps': 300, # Pasos iniciales con alta probabilidad de exploración
-    'force_action_prob': 0.95,   # Aumentado de 0.9 a 0.95
-    'log_reward_components': True, # Registrar componentes de recompensa para análisis
-    
+    'pnl_scale': 3.0,
+    'position_hold_threshold': 80,
+    'take_profit_ratio': 1.0,
+    'atr_base': 20.0,
+    'initial_exploration_steps': 300,
+    'force_action_prob': 0.25,
+    'log_reward_components': True,
+
     # Parámetros de inactividad
-    'inactivity_threshold': 20,  # Reducido de 100 a 20
-    'trivial_trade_threshold': 5.0, # Reducido de 10.0 a 5.0
-    
+    'inactivity_threshold': 50,
+    'trivial_trade_threshold': 10.0,
+
     # Factores de normalización
     'position_normalization': 1.0,
     'price_normalization': 10000.0,
     'balance_normalization': 50000.0,
-    
+
     # Parámetros de observación
     'use_market_features': True,
     'use_account_features': True,
     'use_position_features': True,
-    'continuous_position_size': True, # True = posición como valor continuo, False = one-hot
-    
+    'continuous_position_size': True,
+
     # Parámetros de configuración técnicos
-    'observation_type': 'tensor',  # 'tensor' o 'dict'
-    'action_space_type': 'continuous',  # 'discrete' o 'continuous'
-    
+    'observation_type': 'tensor',
+    'action_space_type': 'continuous',
+
     # Nuevos parámetros para compatibilidad con TradingEnv
-    'window_size': 60,           # Tamaño de la ventana de observación
-    'features': 25               # Número exacto de características
+    'window_size': 60,
+    'features': 28,
+
+    # Parámetros para tamaño mínimo y TP/SL - ACTUALIZADOS PARA USAR TICKS EN LUGAR DE PORCENTAJES
+    'min_sl_ticks': 50,          # Establecido a 50 ticks mínimo para stop loss
+    'min_tp_ticks': 50,          # Establecido a 50 ticks mínimo para take profit
+    'tick_size': 0.25,           # Tamaño del tick para NQ (0.25 puntos por tick)
+    'enforce_min_trade_size': True,  # Activado: obligatorio respetar tamaños mínimos de SL/TP
+    'reward_larger_trades': True,    # Activado: premiar operaciones con mayor tamaño/riesgo
+
+    # NUEVO: Parámetros para trailing stop dinámico
+    'enable_dynamic_trailing': True,  # Permite que el agente decida activar trailing stops
+    'trailing_stop_distance_ticks': 20,  # Distancia en ticks para trailing stop (más cerca que el SL)
+    'trailing_activation_threshold': 0.3,  # Umbral de ganancias para permitir trailing (% del precio)
+    'breakeven_activation_threshold': 0.15,  # Umbral de ganancias para mover a break-even (% del precio)
+    'reward_for_good_sl_adjustment': 0.5,  # Recompensa por ajustes acertados de SL
+    'enable_sl_tp_management': True,  # Habilitar segunda dimensión del espacio de acción
+
+    # Parámetros para equilibrio frecuencia/duración - VALORES MÁS PERMISIVOS
+    'min_hold_steps': 3,         # Reducido drásticamente para pruebas
+    'position_cooldown': 5,      # Reducido drásticamente para pruebas
+    'force_min_hold': False,     # Desactivado para permitir más flexibilidad
+    'short_trade_penalty_factor': 1.0,   # Reducido para no penalizar operaciones cortas
+    'duration_scaling_factor': 0.5,    # Reducido significativamente
+    'position_change_threshold': 0.2,  # Muy permisivo para facilitar cambios
+
+    # Parámetros para equilibrar ticks
+    'log_ticks': True,
+    'positive_ticks_reward': 0.010, 
+    'negative_ticks_penalty': 0.015, # Reducido de 0.020 a 0.015
+    'asymmetric_reward_ratio': 1.5, # Reducido de 2.0 a 1.5
+    'tp_ratio_reward_factor': 1.5, # Reducido de 2.0 a 1.5
+    'sl_ratio_reward_factor': 0.5,
+
+    # Parámetros para distancia
+    'tp_distance_factor': 1.0,
+    'sl_distance_factor': 1.0,
+
+    # Anti-sobretrading moderado
+    'overtrade_penalty': -0.5,       # Reducido aún más para pruebas
+    'hold_reward': 0.05,             # Reducido para no incentivar tanto la inactividad
+    'reward_delay_steps': 1,         # Mínimo retraso posible
 }
 
-# Configuración de recompensa - COMPLETAMENTE REEMPLAZADO POR EL NUEVO SISTEMA
+# Configuración de recompensa - SIMPLIFICADA
 REWARD_CONFIG = {
-    'base_reward': -0.002,           # Reducido de -0.01 a -0.002
-    'pnl_weight': 2.5,               # Aumentado de 1.0 a 2.5
-    'risk_weight': 0.1,              # Reducido de 0.2 a 0.1
-    'drawdown_weight': 0.01,         # Significativamente reducido de 0.05 a 0.01
-    'profit_factor_weight': 0.35,    # Sin cambios
-    'win_rate_weight': 0.5,          # Sin cambios
-    'inactivity_weight': 2.0,        # Aumentado de 0.5 a 2.0
-    'trade_completion_bonus': 8.0,   # Significativamente aumentado de 3.0 a 8.0
-    'direction_change_bonus': 0.5,   # Aumentado de 0.2 a 0.5
-    'diversification_weight': 0.4,   # Sin cambios
-    'trade_frequency_target': 0.65,  # Sin cambios
-    'scale_factor': 5.0,             # Aumentado de 2.0 a 5.0
+    'base_reward': -0.001,
+    'pnl_weight': 2.0,                
+    'risk_weight': 0.5,               # Reducido de 1.0 a 0.5
+    'drawdown_weight': 0.3,           # Reducido de 0.6 a 0.3
+    'profit_factor_weight': 0.5,      # Reducido de 0.8 a 0.5
+    'win_rate_weight': 0.5,           # Reducido de 0.8 a 0.5
+    'inactivity_weight': 0.1,         # Reducido de 0.2 a 0.1
+    'trade_completion_bonus': 0.5,    
+    'direction_change_bonus': 0.0,    
+    'diversification_weight': 0.0,    
+    'trade_frequency_target': 0.2,    # Aumentado de 0.1 a 0.2
+    'scale_factor': 2.0,              # Reducido de 5.0 a 2.0
 }
 
-# Configuración del agente PPO - OPTIMIZADA PARA TRADING
-AGENT_CONFIG = {
-    'learning_rate': 0.0003,          # Aumentado de 0.0001 a 0.0003
-    'n_steps': 8192,                  # Sin cambios
-    'batch_size': 1024,               # Sin cambios
-    'n_epochs': 10,                   # Sin cambios
-    'gamma': 0.95,                    # Reducido de 0.99 a 0.95 para priorizar recompensas a corto plazo
-    'gae_lambda': 0.95,               # Sin cambios
-    'clip_range': 0.2,                # Sin cambios
-    'clip_range_vf': 0.2,             # Sin cambios
-    'normalize_advantage': True,      # Sin cambios
-    'ent_coef': 0.3,                  # Significativamente aumentado de 0.1 a 0.3
-    'vf_coef': 0.5,                   # Sin cambios
-    'max_grad_norm': 0.5,             # Sin cambios
-    'target_kl': 0.015,               # Sin cambios
-    'activation_fn': 'tanh',          # Sin cambios
+# Configuración del agente PPO (sin cambios respecto a v1.3.8)
+PPO_CONFIG = {
+    'learning_rate': 0.0001,
+    'n_steps': 4096,
+    'batch_size': 128,
+    'n_epochs': 4,
+    'gamma': 0.98,
+    'gae_lambda': 0.95,
+    'clip_range': 0.2,
+    'clip_range_vf': 0.2,
+    'normalize_advantage': True,
+    'ent_coef': 0.25,
+    'vf_coef': 0.5,
+    'max_grad_norm': 0.5,
+    'target_kl': None,
+    'activation_fn': 'tanh',
     'net_arch': [
         {
-            'pi': [512, 256, 128],    # Arquitectura de política
-            'vf': [512, 256, 128]     # Arquitectura de función de valor
+            'pi': [256, 128, 64],
+            'vf': [256, 128, 64]
         }
     ],
-    'features_extractor': 'AttentionFeaturesExtractor',  # Extractor de características
-    'features_extractor_kwargs': {
-        'features_dim': 128,          # Dimensión de características
-        'num_attention_heads': 4,     # Número de cabezas de atención
-        'attention_dropout': 0.1,     # Dropout de atención
-    },
+    'device': 'auto',
     'exploration_config': {
-        'exploration_steps': 1000000,  # Aumentado de 500000 a 1000000
-        'exploration_prob': 0.5,      # Aumentado de 0.3 a 0.5
-        'inactivity_threshold': 20,   # Reducido de 50 a 20
+        'exploration_steps': 300000,
+        'exploration_prob': 0.2,
+        'exploration_decay': 0.9995,
+        'inactivity_threshold': 50,
     }
 }
 
 # Alias para compatibilidad
-PPO_CONFIG = AGENT_CONFIG
+AGENT_CONFIG = PPO_CONFIG
 
-# Configuración de entrenamiento
+# Configuración de entrenamiento (sin cambios respecto a v1.3.8)
 TRAINING_CONFIG = {
     # Parámetros generales
-    'total_timesteps': 2000000,        # AUMENTADO DE 800K A 2M DE PASOS
-    'log_freq': 5000,                 # Frecuencia de logging
-    'eval_freq': 20000,               # Frecuencia de evaluación
-    'n_eval_episodes': 5,             # Episodios de evaluación
-    'checkpoint_freq': 40000,         # Frecuencia de guardado
-    'deterministic_eval': True,       # Evaluación determinista
-    'early_stopping_patience': 30,    # AUMENTADO DE 20 A 30
-    
-    # Curriculum learning (aprendizaje progresivo) - MÁS AGRESIVO (REQUERIMIENTO #4-4)
-    'use_curriculum': True,           # Usar curriculum learning
-    'progressive_steps': [200000, 600000, 1200000, 1800000], # AJUSTADOS PARA 2M PASOS
-    'curriculum_parameters': {        # Parámetros que cambiarán progresivamente
-        'inactivity_threshold': [50, 40, 30, 20],  # REDUCIDOS (antes [100, 80, 60, 40])
-        'risk_aversion': [0.1, 0.2, 0.3, 0.4],      # Comenzar con mucha menos aversión
-        'trivial_trade_threshold': [2, 5, 10, 15],  # Valores más bajos para incentivar operaciones
-        'penalty_factor': [0.3, 0.4, 0.6, 0.8],     # Menor penalización inicial
-        'max_drawdown': [0.40, 0.35, 0.25, 0.20]    # Permitir mayor drawdown inicial
+    'total_timesteps': 2000000,
+    'log_freq': 10000,
+    'eval_freq': 10000,
+    'n_eval_episodes': 5,
+    'checkpoint_freq': 25000,
+    'deterministic_eval': False,
+    'early_stopping_patience': 25,
+
+    # Curriculum learning
+    'use_curriculum': True,
+    'progressive_steps': [250000, 750000, 1500000],
+    'curriculum_parameters': {
+        'inactivity_threshold': [80, 50, 30],
+        'risk_aversion': [0.1, 0.3, 0.5],
+        'penalty_factor': [0.5, 1.0, 1.5],
     },
-    
+
     # Validación cruzada
-    'use_cross_validation': True,     # Usar validación cruzada
-    'cv_segments': 5,                 # Número de segmentos para validación
-    'train_test_split': 0.8,          # Proporción de datos para entrenamiento
-    
+    'use_cross_validation': True,
+    'cv_segments': 5,
+    'train_test_split': 0.8,
+
     # Callbacks y opciones adicionales
-    'use_early_stopping': True,       # Usar early stopping
-    'save_replay_buffer': False,      # Guardar buffer de replay
-    'prioritized_replay': False,      # Usar replay priorizado
-    'verbose': 1                      # Nivel de detalle
+    'use_early_stopping': True,
+    'save_replay_buffer': False,
+    'prioritized_replay': False,
+    'verbose': 1
 }
 
-# Configuración de visualización
+# Configuración de visualización (sin cambios)
 VISUALIZATION_CONFIG = {
     # Opciones de gráficos
-    'plot_learning_curve': True,     # Graficar curva de aprendizaje
-    'plot_reward_components': True,  # Graficar componentes de recompensa
-    'plot_equity_curve': True,       # Graficar curva de equity
-    'plot_position_history': True,   # Graficar historia de posiciones
-    'plot_drawdown': True,           # Graficar drawdown
-    
+    'plot_learning_curve': True,
+    'plot_reward_components': True,
+    'plot_equity_curve': True,
+    'plot_position_history': True,
+    'plot_drawdown': True,
+
     # Opciones para gráficos de trading
-    'chart_width': 1200,             # Ancho del gráfico
-    'chart_height': 800,             # Altura del gráfico
-    'chart_theme': 'dark',           # Tema del gráfico ('light', 'dark')
-    'save_charts': True,             # Guardar gráficos
-    'interactive_charts': False,     # Gráficos interactivos
-    
+    'chart_width': 1200,
+    'chart_height': 800,
+    'chart_theme': 'dark',
+    'save_charts': True,
+    'interactive_charts': False,
+
     # Métricas a visualizar
     'show_metrics': [
         'win_rate', 'profit_factor', 'sharpe_ratio', 'sortino_ratio',
@@ -204,29 +237,29 @@ VISUALIZATION_CONFIG = {
     ]
 }
 
-# Configuración de logging
+# Configuración de logging (sin cambios)
 LOGGING_CONFIG = {
     # Niveles de detalle
-    'level': 'WARNING',               # Nivel general de logging cambiado a WARNING
-    'log_level': 'WARNING',           # Nivel de log para compatibilidad con main.py
-    'console_level': 'ERROR',         # Nivel para consola cambiado a ERROR (solo errores críticos)
-    'file_level': 'INFO',             # Mantener nivel INFO para archivos (para diagnóstico posterior)
-    'log_to_file': True,              # Guardar logs en archivo
-    'log_to_console': False,          # Desactivar logs en consola para reducir ruido
-    'log_trades': True,               # Mantener registro de operaciones
-    'log_portfolio': True,            # Mantener cambios en cartera
-    'log_hyperparams': False,         # Desactivar log de hiperparámetros
-    
+    'level': 'INFO',
+    'log_level': 'INFO',
+    'console_level': 'INFO',
+    'file_level': 'INFO',
+    'log_to_file': True,
+    'log_to_console': True,
+    'log_trades': True,
+    'log_portfolio': True,
+    'log_hyperparams': True,
+
     # Métricas detalladas para diagnóstico
-    'log_reward_components': False,   # Desactivar registro detallado de componentes de recompensa
-    'log_network_weights': False,     # Desactivar registro de pesos de la red
-    'log_gradients': False,           # Desactivar registro de gradientes
-    
+    'log_reward_components': True,
+    'log_network_weights': False,
+    'log_gradients': False,
+
     # Opciones de rendimiento
-    'log_system_stats': False,        # Desactivar estadísticas del sistema
-    'log_frequency': 20000,           # Aumentar frecuencia de logging a cada 20000 pasos
-    'tensorboard': True,              # Mantener TensorBoard
-    'wandb': False                    # Mantener Weights & Biases desactivado
+    'log_system_stats': True,
+    'log_frequency': 10000,
+    'tensorboard': True,
+    'wandb': False
 }
 
 # Combine all configurations
@@ -244,7 +277,7 @@ CONFIG = {
 def get_config():
     """
     Get the complete configuration.
-    
+
     Returns:
         dict: Complete configuration
     """
@@ -253,15 +286,15 @@ def get_config():
 def update_config(config_updates):
     """
     Update the configuration with new values.
-    
+
     Args:
         config_updates (dict): Dictionary with configuration updates
-        
+
     Returns:
         dict: Updated configuration
     """
     for section, updates in config_updates.items():
         if section in CONFIG:
             CONFIG[section].update(updates)
-    
+
     return CONFIG

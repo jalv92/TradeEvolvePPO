@@ -180,7 +180,7 @@ class PPOAgent:
         policy_kwargs = self.ppo_config.get('policy_kwargs', {})
         
         # Handle custom policy type
-        if policy_type == 'LSTMPolicy':
+        if policy_type == 'LstmPolicy':
             policy_cls = LSTMPolicy
             
             # Asegurar que los parámetros LSTM estén en policy_kwargs

@@ -6,8 +6,114 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+def load_data(symbol='NQ', timeframe='5min', start_date='2022-01-01', end_date='2022-12-31'):
+    """
+    Carga los datos directamente desde un archivo CSV específico o desde la carpeta de datos.
+    
+    Args:
+        symbol (str): Símbolo del instrumento ('NQ', 'ES', etc.)
+        timeframe (str): Timeframe de los datos ('1min', '5min', etc.)
+        start_date (str): Fecha de inicio para filtrar datos
+        end_date (str): Fecha final para filtrar datos
+        
+    Returns:
+        pd.DataFrame: DataFrame con los datos cargados
+    """
+    # Intentar encontrar un archivo que coincida con los parámetros
+    data_dir = os.path.join('data', 'dataset')
+    filename = f"{symbol}_{timeframe}_{start_date}_{end_date}.csv"
+    
+    # Si no existe el archivo específico, buscar cualquier archivo con el símbolo
+    if not os.path.exists(os.path.join(data_dir, filename)):
+        files = [f for f in os.listdir(data_dir) if f.startswith(f"{symbol}_") and f.endswith('.csv')]
+        if files:
+            # Usar el archivo más reciente por fecha de modificación
+            filename = sorted(files, key=lambda x: os.path.getmtime(os.path.join(data_dir, x)), reverse=True)[0]
+            logger.info(f"Usando archivo existente: {filename}")
+        else:
+            # Buscar cualquier archivo CSV si no hay específicos del símbolo
+            files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
+            if files:
+                filename = sorted(files, key=lambda x: os.path.getmtime(os.path.join(data_dir, x)), reverse=True)[0]
+                logger.info(f"Usando archivo alternativo: {filename}")
+            else:
+                raise FileNotFoundError(f"No se encontraron archivos de datos para {symbol} en {data_dir}")
+    
+    # Cargar los datos
+    file_path = os.path.join(data_dir, filename)
+    try:
+        logger.info(f"Cargando datos desde {file_path}")
+        data = pd.read_csv(file_path)
+        
+        # Convertir la columna datetime si está presente
+        if 'datetime' in data.columns:
+            data['datetime'] = pd.to_datetime(data['datetime'])
+            data.set_index('datetime', inplace=True)
+        
+        # Filtrar por fechas si es necesario
+        if start_date and end_date:
+            mask = (data.index >= start_date) & (data.index <= end_date)
+            data = data[mask]
+        
+        logger.info(f"Datos cargados correctamente: {len(data)} filas")
+        return data
+        
+    except Exception as e:
+        logger.error(f"Error cargando datos: {str(e)}")
+        # Generar datos sintéticos de ejemplo como último recurso
+        logger.warning("Generando datos sintéticos de ejemplo")
+        return _generate_sample_data()
+
+def _generate_sample_data(rows=1000):
+    """
+    Genera datos sintéticos para pruebas cuando no hay datos reales disponibles.
+    
+    Args:
+        rows (int): Número de filas a generar
+        
+    Returns:
+        pd.DataFrame: DataFrame con datos sintéticos
+    """
+    np.random.seed(42)
+    dates = pd.date_range(start='2022-01-01', periods=rows, freq='5min')
+    
+    # Generar precios siguiendo un proceso aleatorio
+    close = np.random.normal(15000, 150, rows).cumsum() + 15000
+    # Generar OHLC basado en close
+    high = close + np.random.normal(0, 20, rows).cumsum()
+    low = close - np.random.normal(0, 20, rows).cumsum()
+    open_price = low + np.random.rand(rows) * (high - low)
+    
+    # Generar volumen
+    volume = np.random.randint(100, 1000, rows)
+    
+    # Indicadores técnicos básicos
+    sma_20 = pd.Series(close).rolling(20).mean().values
+    sma_50 = pd.Series(close).rolling(50).mean().values
+    sma_200 = pd.Series(close).rolling(200).mean().values
+    
+    # Generar DataFrame
+    data = pd.DataFrame({
+        'open': open_price,
+        'high': high,
+        'low': low,
+        'close': close,
+        'volume': volume,
+        'sma_20': sma_20,
+        'sma_50': sma_50,
+        'sma_200': sma_200
+    }, index=dates)
+    
+    # Llenar NaNs
+    data.fillna(method='bfill', inplace=True)
+    data.fillna(method='ffill', inplace=True)
+    
+    logger.warning(f"Se han generado {len(data)} filas de datos sintéticos para pruebas")
+    return data
 
 class DataLoader:
     """
@@ -99,9 +205,9 @@ class DataLoader:
         strategy = self.config.get('missing_strategy', 'ffill')
         
         if strategy == 'ffill':
-            data = data.fillna(method='ffill')
+            data = data.ffill()
             # Handle any remaining NaNs at the beginning
-            data = data.fillna(method='bfill')
+            data = data.bfill()
         elif strategy == 'mean':
             data = data.fillna(data.mean())
         elif strategy == 'median':
